@@ -890,10 +890,13 @@ def api_clubs_club_cancreate():
 @app.route('/api/campaign/profile/campaigns', methods=['GET'])
 @app.route('/api/notifications', methods=['GET'])
 @app.route('/api/announcements/active', methods=['GET'])
-@app.route('/api/event-feed', methods=['GET'])
 @app.route('/api/activity-feed/feed/', methods=['GET'])
 def api_empty_arrays():
     return jsonify([])
+
+@app.route('/api/event-feed', methods=['GET'])
+def api_event_feed():
+    return {"data": []}
 
 @app.route('/api/auth', methods=['GET'])
 def api_auth():
