@@ -15,6 +15,7 @@ import threading
 import re
 import smtplib, ssl
 import requests
+import subprocess
 import json
 import base64
 import uuid
@@ -861,7 +862,7 @@ def send_restarting_message():
             send_message_to_all_online(message)
             discord.send_message(message)
             time.sleep(6)
-            os.kill(os.getpid(), signal.SIGINT)
+            os.system("sudo systemctl restart zoffline.service")
 
 
 @app.route("/restart")
@@ -875,6 +876,8 @@ def restart_server():
         send_restarting_message_thread = threading.Thread(target=send_restarting_message)
         send_restarting_message_thread.start()
         discord.send_message('Restarting / Shutting down in %s minutes. Save your progress or continue riding until server is back online' % restarting_in_minutes)
+        p = subprocess.Popen(["git", "pull"], cwd="/home/ubuntu/zwift-offline")
+        p.wait()
     return redirect(url_for('user_home', username=current_user.username))
 
 
@@ -960,17 +963,9 @@ def delete(filename):
 @login_required
 def power_curves(username):
     if request.method == "POST":
-        player_id = current_user.player_id
-        PowerCurve.query.filter_by(player_id=player_id).delete()
+        PowerCurve.query.filter_by(player_id=current_user.player_id).delete()
         db.session.commit()
-        if request.form.get('create'):
-            fit_dir = os.path.join(STORAGE_DIR, str(player_id), 'fit')
-            if os.path.isdir(fit_dir):
-                for fit_file in os.listdir(fit_dir):
-                    create_power_curve(player_id, os.path.join(fit_dir, fit_file))
-            flash("Power curves created.")
-        else:
-            flash("Power curves deleted.")
+        flash("Power curves deleted.")
         return redirect(url_for('settings', username=current_user.username))
     return render_template("power_curves.html", username=current_user.username)
 
@@ -1524,6 +1519,10 @@ def custom_style(filename):
 @app.route('/static/web/launcher/<path:filename>')
 def static_web_launcher(filename):
     return send_from_directory('%s/cdn/static/web/launcher' % SCRIPT_DIR, filename)
+
+@app.route('/app/<path:filename>')
+def cdn_app(filename):
+    return send_from_directory('%s/cdn/app' % SCRIPT_DIR, filename)
 
 
 @app.route('/api/telemetry/config', methods=['GET'])
