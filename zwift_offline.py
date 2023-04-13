@@ -1081,16 +1081,9 @@ def api_activity_feed():
     ret = select_activities_json(profile_id, limit, start_after)
     return jsonify(ret)
 
-def create_activity_file(fit_file, activity_file, full=False):
+def create_activity_file(fit_file, small_file, full_file=None):
+    data = {"powerInWatts": [], "cadencePerMin": [], "heartRate": [], "distanceInCm": [], "speedInCmPerSec": [], "timeInSec": [], "altitudeInCm": [], "latlng": []}
     start_time = 0
-    powerInWatts = []
-    cadencePerMin = []
-    heartRate = []
-    distanceInCm = []
-    speedInCmPerSec = []
-    timeInSec = []
-    altitudeInCm = []
-    latlng = []
     with fitdecode.FitReader(fit_file) as fit:
         for frame in fit:
             if frame.frame_type == fitdecode.FIT_FRAME_DATA and frame.name == 'record':
@@ -1109,21 +1102,23 @@ def create_activity_file(fit_file, activity_file, full=False):
                     elif f.name == "position_lat" and f.value is not None: position_lat = round(f.value / 11930465, 6)
                     elif f.name == "position_long" and f.value is not None: position_long = round(f.value / 11930465, 6)
                 if None not in {power, cadence, heart_rate, distance, speed, time, altitude, position_lat, position_long}:
-                    powerInWatts.append(power)
-                    cadencePerMin.append(cadence)
-                    heartRate.append(heart_rate)
-                    distanceInCm.append(distance)
-                    speedInCmPerSec.append(speed)
-                    timeInSec.append(time)
-                    altitudeInCm.append(altitude)
-                    latlng.append([position_lat, position_long])
-    if all(l for l in [powerInWatts, cadencePerMin, heartRate, distanceInCm, speedInCmPerSec, timeInSec, altitudeInCm, latlng]):
-        step = len(powerInWatts) // 1000
-        if step == 0 or full: step = 1
-        data = {"powerInWatts": powerInWatts[::step], "cadencePerMin": cadencePerMin[::step], "heartRate": heartRate[::step],
-            "distanceInCm": distanceInCm[::step], "speedInCmPerSec": speedInCmPerSec[::step], "timeInSec": timeInSec[::step],
-            "altitudeInCm": altitudeInCm[::step], "latlng": latlng[::step]}
-        with open(activity_file, 'w') as f:
+                    data["powerInWatts"].append(power)
+                    data["cadencePerMin"].append(cadence)
+                    data["heartRate"].append(heart_rate)
+                    data["distanceInCm"].append(distance)
+                    data["speedInCmPerSec"].append(speed)
+                    data["timeInSec"].append(time)
+                    data["altitudeInCm"].append(altitude)
+                    data["latlng"].append([position_lat, position_long])
+    if data["powerInWatts"]:
+        if full_file:
+            with open(full_file, 'w') as f:
+                json.dump(data, f)
+        step = len(data["powerInWatts"]) // 1000
+        if step > 1:
+            for d in data:
+                data[d] = data[d][::step]
+        with open(small_file, 'w') as f:
             json.dump(data, f)
 
 @app.route('/api/activities/<int:activity_id>', methods=['GET'])
@@ -1844,17 +1839,10 @@ def api_profiles_activities(player_id):
 
     # request.method == 'GET'
     activities = activity_pb2.ActivityList()
-    rows = db.session.execute(sqlalchemy.text("SELECT * FROM activity WHERE player_id = :p"), {"p": player_id}).mappings()
-    should_remove = list()
+    rows = db.session.execute(sqlalchemy.text("SELECT * FROM activity WHERE player_id = :p AND date > date('now', '-1 month')"), {"p": player_id}).mappings()
     for row in rows:
-        if row.distanceInMeters < 100: # Remove activities with less than 100m distance
-            should_remove.append(row.id)
-        elif stime_to_timestamp(row.date) > get_time() - 2592000: # Add activities from last 30 days
-            activity = activities.activities.add()
-            row_to_protobuf(row, activity, exclude_fields=['fit'])
-    if should_remove:
-        Activity.query.filter(Activity.id.in_(should_remove)).delete()
-        db.session.commit()
+        activity = activities.activities.add()
+        row_to_protobuf(row, activity, exclude_fields=['fit'])
     return activities.SerializeToString(), 200
 
 def time_since(state):
@@ -2183,7 +2171,7 @@ def api_profiles_activities_id(player_id, activity_id):
     if current_user.player_id != player_id:
         return '', 401
     if request.method == 'DELETE':
-        db.session.execute(sqlalchemy.text("DELETE FROM activity WHERE id = :i"), {"i": activity_id})
+        Activity.query.filter_by(id=activity_id).delete()
         db.session.commit()
         logout_player(player_id)
         return 'true', 200
@@ -2196,6 +2184,9 @@ def api_profiles_activities_id(player_id, activity_id):
     if request.args.get('upload-to-strava') != 'true':
         return response, 200
     if activity.distanceInMeters < 300:
+        Activity.query.filter_by(id=activity_id).delete()
+        db.session.commit()
+        logout_player(player_id)
         return response, 200
 
     create_power_curve(player_id, BytesIO(activity.fit))
