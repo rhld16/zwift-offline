@@ -96,10 +96,10 @@ zoffline can be installed on the same machine as Zwift or another local machine.
 <details><summary>Windows Instructions</summary>
 
 * Install Zwift
-  * If your Zwift version is 1.0.110983, you're all set.
+  * If your Zwift version is 1.0.111622, you're all set.
   * If Zwift is not installed, install it before installing zoffline.
-  * If your Zwift version is newer than 1.0.110983 and zoffline is running from source: copy ``C:\Program Files (x86)\Zwift\Zwift_ver_cur.xml`` to zoffline's ``cdn/gameassets/Zwift_Updates_Root/`` overwriting the existing file.
-  * If your Zwift version is newer than 1.0.110983 and zoffline is not running from source: wait for zoffline to be updated.
+  * If your Zwift version is newer than 1.0.111622 and zoffline is running from source: copy ``C:\Program Files (x86)\Zwift\Zwift_ver_cur.xml`` to zoffline's ``cdn/gameassets/Zwift_Updates_Root/`` overwriting the existing file.
+  * If your Zwift version is newer than 1.0.111622 and zoffline is not running from source: wait for zoffline to be updated.
 * __NOTE:__ instead of performing the steps below you can instead just run the __configure_client__ script from https://github.com/zoffline/zwift-offline/releases/tag/zoffline_helper
 * On your Windows machine running Zwift, copy the following files in this repo to a known location:
   * [ssl/cert-zwift-com.p12](https://github.com/zoffline/zwift-offline/raw/master/ssl/cert-zwift-com.p12)
@@ -124,9 +124,9 @@ to generate your own certificates and do the same.
 <details><summary>macOS Instructions</summary>
 
 * Install Zwift
-  * If your Zwift version is 1.0.110983, you're all set.
+  * If your Zwift version is 1.0.111622, you're all set.
   * If Zwift is not installed, install it before installing zoffline.
-  * If your Zwift version is newer than 1.0.110983: copy ``~/Library/Application Support/Zwift/ZwiftMac_ver_cur.xml`` to zoffline's ``cdn/gameassets/Zwift_Updates_Root/`` overwriting the existing file.
+  * If your Zwift version is newer than 1.0.111622: copy ``~/Library/Application Support/Zwift/ZwiftMac_ver_cur.xml`` to zoffline's ``cdn/gameassets/Zwift_Updates_Root/`` overwriting the existing file.
 * On your Mac machine running Zwift, copy the following files in this repo to a known location:
   * [ssl/cert-zwift-com.p12](https://github.com/zoffline/zwift-offline/raw/master/ssl/cert-zwift-com.p12)
   * [ssl/cert-zwift-com.pem](https://github.com/zoffline/zwift-offline/raw/master/ssl/cert-zwift-com.pem)
@@ -169,7 +169,7 @@ to generate your own certificates and do the same.
 
 * Install required apps:
   * Download and install ``ZofflineObb.apk`` from [here](https://github.com/Argon2000/ZofflineObbAndroid/releases/latest)
-  * Download "#1 HOST CHANGER - BEST FOR GAMING" from Google Play ([link](https://play.google.com/store/apps/details?id=best.see.world.company))
+  * Download "Gaming VPN" from Google Play ([link](https://play.google.com/store/apps/details?id=com.gamingvpn))
   * Create a `hosts.txt` file to use with the app (you could use a text editor app or create it online with an online tool such as [this](https://passwordsgenerator.net/text-editor/)). The file must look like this (replace ``<zoffline ip>`` with the IP address of the machine running zoffline):
   ```
   <zoffline ip> us-or-rly101.zwift.com
@@ -306,7 +306,7 @@ Create a ``server-ip.txt`` file in the ``storage`` directory containing the IP a
 * Open Command Prompt, cd to that location and run
   * ``apk-mitm --certificate cert-zwift-com.pem zca.apk``
 * Copy ``zca-patched.apk`` to your phone and install it
-* Download "#1 HOST CHANGER - BEST FOR GAMING" from Google Play ([link](https://play.google.com/store/apps/details?id=best.see.world.company))
+* Download "Gaming VPN" from Google Play ([link](https://play.google.com/store/apps/details?id=com.gamingvpn))
 * Create a ``hosts.txt`` file to use with the app (you could use a text editor app or create it online with an online tool such as [this](https://passwordsgenerator.net/text-editor/)). The file must look like this (replace ``<zoffline ip>`` with the IP address of the machine running zoffline):
 ```
 <zoffline ip> us-or-rly101.zwift.com

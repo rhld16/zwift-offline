@@ -454,6 +454,9 @@ def load_ghosts(player_id, state, ghosts):
 def regroup_ghosts(player_id, ahead=False):
     p = online[player_id]
     ghosts = global_ghosts[player_id]
+    if not ghosts.loaded:
+        ghosts.loaded = True
+        load_ghosts(player_id, p, ghosts)
     if not ghosts.started and ghosts.play:
         ghosts.started = True
     for g in ghosts.play:
@@ -660,12 +663,12 @@ class UDPHandler(socketserver.BaseRequestHandler):
         ghosts = global_ghosts[player_id]
 
         if player_id in ghosts_enabled and ghosts_enabled[player_id]:
-            #Load ghosts for current course
-            if not ghosts.loaded and zo.get_course(state):
-                ghosts.loaded = True
-                load_ghosts(player_id, state, ghosts)
-            #Save player state as ghost if moving
             if state.roadTime and ghosts.last_rt and state.roadTime != ghosts.last_rt:
+                #Load ghosts when start moving (as of version 1.39 player sometimes enters course 6 road 0 at home screen)
+                if not ghosts.loaded:
+                    ghosts.loaded = True
+                    load_ghosts(player_id, state, ghosts)
+                #Save player state as ghost
                 if t >= ghosts.last_rec + ghost_update_freq:
                     ghosts.rec.states.append(state)
                     ghosts.last_rec = t
@@ -720,7 +723,7 @@ class UDPHandler(socketserver.BaseRequestHandler):
                 is_nearby, distance = nearby_distance(watching_state, bot)
                 if is_nearby:
                     nearby[p_id] = distance
-        if ghosts.started and t >= ghosts.last_play + ghost_update_freq:
+        elif ghosts.started and t >= ghosts.last_play + ghost_update_freq:
             ghosts.last_play = t
             ghost_id = 1
             for g in ghosts.play:
