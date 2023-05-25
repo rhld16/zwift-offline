@@ -7,6 +7,7 @@ import sys
 import threading
 import time
 import csv
+import json
 import math
 import random
 import itertools
@@ -44,6 +45,7 @@ CDN_PROXY = os.path.isfile('%s/cdn-proxy.txt' % STORAGE_DIR)
 
 SERVER_IP_FILE = "%s/server-ip.txt" % STORAGE_DIR
 FAKE_DNS_FILE = "%s/fake-dns.txt" % STORAGE_DIR
+ENABLE_BOTS_FILE = "%s/enable_bots.txt" % STORAGE_DIR
 DISCORD_CONFIG_FILE = "%s/discord.cfg" % STORAGE_DIR
 if os.path.isfile(DISCORD_CONFIG_FILE):
     from discord_bot import DiscordThread
@@ -71,7 +73,6 @@ global_bots = {}
 global_news = {} #player id to dictionary of peer_player_id->worldTime
 global_relay = {}
 global_clients = {}
-start_time = time.time()
 
 def sigint_handler(num, frame):
     httpd.shutdown()
@@ -404,7 +405,6 @@ class GhostsVariables:
     rec = None
     play = []
     last_rec = 0
-    last_play = 0
     last_rt = 0
     start_road = 0
     start_rt = 0
@@ -496,6 +496,7 @@ def load_pace_partners():
 
 def play_pace_partners():
     while True:
+        start = time.time()
         for pp_id in global_pace_partners.keys():
             pp = global_pace_partners[pp_id]
             if pp.position < len(pp.route.states) - 1: pp.position += 1
@@ -504,10 +505,15 @@ def play_pace_partners():
             state.id = pp_id
             state.watchingRiderId = pp_id
             state.worldTime = zo.world_time()
-        ppthreadevent.wait(timeout=pacer_update_freq)
+        time.sleep(pacer_update_freq - (time.time() - start))
 
-def load_bots(multiplier):
-    import json
+def load_bots():
+    multiplier = 1
+    with open(ENABLE_BOTS_FILE) as f:
+        try:
+            multiplier = int(f.readline().rstrip('\r\n'))
+        except ValueError:
+            pass
     with open('%s/bot.txt' % SCRIPT_DIR) as f:
         data = json.load(f)
     i = 1
@@ -550,10 +556,12 @@ def load_bots(multiplier):
 
 def play_bots():
     while True:
+        start = time.time()
         if zo.reload_pacer_bots:
             zo.reload_pacer_bots = False
-            global_bots.clear()
-            load_bots()
+            if os.path.isfile(ENABLE_BOTS_FILE):
+                global_bots.clear()
+                load_bots()
         for bot_id in global_bots.keys():
             bot = global_bots[bot_id]
             if bot.position < len(bot.route.states) - 1: bot.position += 1
@@ -562,14 +570,14 @@ def play_bots():
             state.id = bot_id
             state.watchingRiderId = bot_id
             state.worldTime = zo.world_time()
-        botthreadevent.wait(timeout=ghost_update_freq)
+        time.sleep(ghost_update_freq - (time.time() - start))
 
 def remove_inactive():
     while True:
         for p_id in list(online.keys()):
             if zo.world_time() > online[p_id].worldTime + 10000:
                 zo.logout_player(p_id)
-        rithreadevent.wait(timeout=1)
+        time.sleep(1)
 
 def get_empty_message(player_id):
     message = udp_node_msgs_pb2.ServerToClient()
@@ -644,14 +652,14 @@ class UDPHandler(socketserver.BaseRequestHandler):
         if not player_id in last_bot_updates.keys():
             last_bot_updates[player_id] = 0
 
-        t = int(zo.get_utc_time())
+        t = time.time()
 
         #Update player online state
         if state.roadTime:
             if player_id in online.keys():
                 if online[player_id].worldTime > state.worldTime:
                     return #udp is unordered -> drop old state
-            elif time.time() > start_time + 10:
+            else:
                 discord.change_presence(len(online) + 1)
             online[player_id] = state
 
@@ -723,16 +731,13 @@ class UDPHandler(socketserver.BaseRequestHandler):
                 is_nearby, distance = nearby_distance(watching_state, bot)
                 if is_nearby:
                     nearby[p_id] = distance
-        elif ghosts.started and t >= ghosts.last_play + ghost_update_freq:
-            ghosts.last_play = t
-            ghost_id = 1
-            for g in ghosts.play:
-                if len(g.states) > g.position:
-                    is_nearby, distance = nearby_distance(watching_state, g.states[g.position])
-                    if is_nearby:
-                        nearby[player_id + ghost_id * 10000000] = distance
-                    g.position += 1
-                ghost_id += 1
+            if ghosts.started:
+                for i, g in enumerate(ghosts.play):
+                    if len(g.states) > g.position:
+                        is_nearby, distance = nearby_distance(watching_state, g.states[g.position])
+                        if is_nearby:
+                            nearby[player_id + (i + 1) * 10000000] = distance
+                        g.position += 1
 
         #Send nearby riders states or empty message
         message = get_empty_message(player_id)
@@ -752,9 +757,9 @@ class UDPHandler(socketserver.BaseRequestHandler):
                     bot_variables = global_bots[p_id]
                     player = bot_variables.route.states[bot_variables.position]
                 elif p_id > 10000000:
-                    player = udp_node_msgs_pb2.PlayerState()
                     ghost = ghosts.play[math.floor(p_id / 10000000) - 1]
-                    player.CopyFrom(ghost.states[ghost.position - 1])
+                    player = udp_node_msgs_pb2.PlayerState()
+                    player.CopyFrom(ghost.states[ghost.position - 1]) #worldTime is used in name
                     player.id = p_id
                     player.worldTime = zo.world_time()
                 if player != None:
@@ -781,19 +786,11 @@ class UDPHandler(socketserver.BaseRequestHandler):
 
 if os.path.isdir(PACE_PARTNERS_DIR):
     load_pace_partners()
-    ppthreadevent = threading.Event()
     pp = threading.Thread(target=play_pace_partners)
     pp.start()
 
-ENABLE_BOTS_FILE = '%s/enable_bots.txt' % STORAGE_DIR
 if os.path.isfile(ENABLE_BOTS_FILE):
-    with open(ENABLE_BOTS_FILE, 'r') as f:
-        try:
-            multiplier = int(f.readline().rstrip('\r\n'))
-        except ValueError:
-            multiplier = 1
-    load_bots(multiplier)
-    botthreadevent = threading.Event()
+    load_bots()
     bot = threading.Thread(target=play_bots)
     bot.start()
 
@@ -814,7 +811,6 @@ udpserver_thread = threading.Thread(target=udpserver.serve_forever)
 udpserver_thread.daemon = True
 udpserver_thread.start()
 
-rithreadevent = threading.Event()
 ri = threading.Thread(target=remove_inactive)
 ri.start()
 
