@@ -5,7 +5,7 @@ After=multi-user.target
 [Service]
 Type=simple
 Restart=always
-ExecStart=/usr/bin/python3 /home/ubuntu/zwift-offline/standalone.py
+ExecStart=/home/ubuntu/zoffline/bin/python /home/ubuntu/zwift-offline/standalone.py
 
 [Install]
 WantedBy=multi-user.target
