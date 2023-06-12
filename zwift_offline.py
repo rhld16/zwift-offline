@@ -1056,6 +1056,7 @@ def api_eventfeed():
 @app.route('/api/campaign/profile/campaigns', methods=['GET'])
 @app.route('/api/announcements/active', methods=['GET'])
 @app.route('/api/recommendation/profile', methods=['GET'])
+@app.route('/api/recommendations/recommendation', methods=['GET'])
 def api_empty_arrays():
     return jsonify([])
 
@@ -1975,16 +1976,18 @@ def player_playbacks_player_playback():
         f.write(stream)
     return new_uuid, 201
 
-@app.route('/api/player-playbacks/player/me/playbacks/<segment_id>/<option>', methods=['GET'])
+@app.route('/api/player-playbacks/player/<player_id>/playbacks/<segment_id>/<option>', methods=['GET'])
 @jwt_to_session_cookie
 @login_required
-def player_playbacks_player_me_playbacks(segment_id, option):
+def player_playbacks_player_playbacks(player_id, segment_id, option):
+    if player_id == 'me':
+        player_id = current_user.player_id
     segment_id = int(segment_id)
     after = request.args.get('after')
     before = request.args.get('before')
     pb_type = playback_pb2.PlaybackType.Value(request.args.get('type'))
     query = "SELECT * FROM playback WHERE player_id = :p AND segment_id = :s AND type = :t"
-    args = {"p": current_user.player_id, "s": segment_id, "t": pb_type}
+    args = {"p": player_id, "s": segment_id, "t": pb_type}
     if after != '18446744065933551616':
         query += " AND world_time > :a"
         args.update({"a": after})
@@ -2907,6 +2910,50 @@ def relay_worlds_generic(server_realm=None):
 def relay_worlds():
     return relay_worlds_generic()
 
+
+def add_teleport_target(player, targets, is_pace_partner=True):
+    partial_profile = get_partial_profile(player.id)
+    if is_pace_partner:
+        target = targets.pacer_groups.add()
+        target.route = partial_profile.route
+        if player.sport == profile_pb2.Sport.CYCLING:
+            target.ride_power = player.power
+        else:
+            target.speed = player.speed
+    else:
+        target = targets.friends.add()
+        target.route = player.route
+    target.id = player.id
+    target.firstName = partial_profile.first_name
+    target.lastName = partial_profile.last_name
+    target.distance = player.distance
+    target.time = player.time
+    target.country_code = partial_profile.country_code
+    target.sport = player.sport
+    target.power = player.power
+    target.x = player.x
+    target.y_altitude = player.y_altitude
+    target.z = player.z
+
+@app.route('/relay/teleport-targets', methods=['GET'])
+@jwt_to_session_cookie
+@login_required
+def relay_teleport_targets():
+    course = int(request.args.get('mapRevisionId'))
+    targets = world_pb2.TeleportTargets()
+    for p_id in global_pace_partners.keys():
+        pp = global_pace_partners[p_id]
+        pace_partner = pp.route.states[pp.position]
+        if get_course(pace_partner) == course:
+            add_teleport_target(pace_partner, targets)
+    for p_id in online.keys():
+        if p_id != current_user.player_id:
+            player = online[p_id]
+            if get_course(player) == course:
+                add_teleport_target(player, targets, False)
+    return targets.SerializeToString()
+
+
 def iterableToJson(it):
     if it == None:
         return None
@@ -3354,13 +3401,16 @@ def api_achievement_category(category_id):
     return '', 404 # returning error for now, since some steps can't be completed
 
 
-@app.route('/api/power-curve/best/all-time', methods=['GET'])
+@app.route('/api/power-curve/best/<option>', methods=['GET'])
 @jwt_to_session_cookie
 @login_required
-def api_power_curve_best_all_time():
+def api_power_curve_best(option):
     power_curves = profile_pb2.PowerCurveAggregationMsg()
     for time in ['5', '60', '300', '1200']:
-        row = PowerCurve.query.filter_by(player_id=current_user.player_id, time=time).order_by(PowerCurve.power.desc()).first()
+        filters = [PowerCurve.player_id == current_user.player_id, PowerCurve.time == time]
+        if option == 'last': #default is "all-time"
+            filters.append(PowerCurve.timestamp > int(get_time()) - int(request.args.get('days')) * 86400)
+        row = PowerCurve.query.filter(*filters).order_by(PowerCurve.power.desc()).first()
         if row:
             power_curves.watts[time].power = row.power
     return power_curves.SerializeToString(), 200
