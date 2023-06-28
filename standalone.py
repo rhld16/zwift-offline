@@ -54,6 +54,7 @@ else:
     discord = DummyDiscord()
 
 MAP_OVERRIDE = deque(maxlen=16)
+CLIMB_OVERRIDE = deque(maxlen=16)
 
 bot_update_freq = 3
 pacer_update_freq = 1
@@ -96,7 +97,10 @@ class CDNHandler(SimpleHTTPRequestHandler):
             cookies = SimpleCookie()
             cookies.load(cookies_string)
             # We have no identifying information when Zwift makes MapSchedule request except for the client's IP.
-            MAP_OVERRIDE.append((self.client_address[0], cookies['selected_map'].value))
+            if 'selected_map' in cookies:
+                MAP_OVERRIDE.append((self.client_address[0], cookies['selected_map'].value))
+            if 'selected_climb' in cookies:
+                CLIMB_OVERRIDE.append((self.client_address[0], cookies['selected_climb'].value))
             self.send_response(302)
             self.send_header('Cookie', cookies_string)
             self.send_header('Location', 'https://secure.zwift.com/ride')
@@ -113,6 +117,17 @@ class CDNHandler(SimpleHTTPRequestHandler):
                     output = '<MapSchedule><appointments><appointment map="%s" start="%s"/></appointments><VERSION>1</VERSION></MapSchedule>' % (override[1], start.strftime("%Y-%m-%dT00:01-04"))
                     self.wfile.write(output.encode())
                     MAP_OVERRIDE.remove(override)
+                    return
+        if self.path == '/gameassets/PortalRoadSchedule_v1.xml':
+            for override in CLIMB_OVERRIDE:
+                if override[0] == self.client_address[0]:
+                    self.send_response(200)
+                    self.send_header('Content-type', 'text/xml')
+                    self.end_headers()
+                    start = datetime.today() - timedelta(days=1)
+                    output = '<PortalRoads><PortalRoadSchedule><appointments><appointment road="%s" portal="0" start="%s"/></appointments><VERSION>1</VERSION></PortalRoadSchedule></PortalRoads>' % (override[1], start.strftime("%Y-%m-%dT00:01-04"))
+                    self.wfile.write(output.encode())
+                    CLIMB_OVERRIDE.remove(override)
                     return
         exceptions = ['Launcher_ver_cur.xml', 'LauncherMac_ver_cur.xml',
                       'Zwift_ver_cur.xml', 'ZwiftMac_ver_cur.xml',
@@ -543,16 +558,17 @@ def load_bots():
                                 loop_riders = data['riders'].copy()
                                 random.shuffle(loop_riders)
                             rider = loop_riders.pop()
-                            p.first_name = rider['first_name']
-                            p.last_name = rider['last_name']
-                            p.is_male = rider['is_male']
+                            for item in ['first_name', 'last_name', 'is_male', 'country_code']:
+                                setattr(p, item, rider[item])
                             p.body_type = random.choice(data['body_types'])
                             p.hair_type = random.choice(data['hair_types'])
                             if p.is_male:
                                 p.facial_hair_type = random.choice(data['facial_hair_types'])
                             else:
                                 p.body_type += 1
-                            p.country_code = rider['country_code']
+                            for item in ['ride_jersey', 'bike_frame', 'bike_wheel_front', 'bike_wheel_rear', 'ride_helmet_type', 'glasses_type', 'ride_shoes_type', 'ride_socks_type']:
+                                if item in rider:
+                                    setattr(p, item, rider[item])
                             bot.profile = p
                         i += 1
 
