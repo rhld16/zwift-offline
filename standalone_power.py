@@ -7,6 +7,7 @@ import sys
 import threading
 import time
 import csv
+import json
 import math
 import random
 import itertools
@@ -16,7 +17,6 @@ from http.server import SimpleHTTPRequestHandler
 from http.cookies import SimpleCookie
 from collections import deque
 from datetime import datetime, timedelta
-from shutil import copyfile
 from Crypto.Cipher import AES
 
 import zwift_offline as zo
@@ -72,20 +72,17 @@ if getattr(sys, 'frozen', False):
     EXE_DIR = os.path.dirname(sys.executable)
     STORAGE_DIR = "%s/storage" % EXE_DIR
     PACE_PARTNERS_DIR = '%s/pace_partners' % EXE_DIR
-    START_LINES_FILE = '%s/start_lines.csv' % STORAGE_DIR
-    if not os.path.isfile(START_LINES_FILE):
-        copyfile('%s/start_lines.csv' % SCRIPT_DIR, START_LINES_FILE)
 else:
     SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
     STORAGE_DIR = "%s/storage" % SCRIPT_DIR
     PACE_PARTNERS_DIR = '%s/pace_partners' % SCRIPT_DIR
-    START_LINES_FILE = '%s/start_lines.csv' % SCRIPT_DIR
 
 CDN_DIR = "%s/cdn" % SCRIPT_DIR
 CDN_PROXY = os.path.isfile('%s/cdn-proxy.txt' % STORAGE_DIR)
 
 SERVER_IP_FILE = "%s/server-ip.txt" % STORAGE_DIR
 FAKE_DNS_FILE = "%s/fake-dns.txt" % STORAGE_DIR
+ENABLE_BOTS_FILE = "%s/enable_bots.txt" % STORAGE_DIR
 DISCORD_CONFIG_FILE = "%s/discord.cfg" % STORAGE_DIR
 if os.path.isfile(DISCORD_CONFIG_FILE):
     from discord_bot import DiscordThread
@@ -99,9 +96,14 @@ else:
     discord = DummyDiscord()
 
 MAP_OVERRIDE = deque(maxlen=16)
+CLIMB_OVERRIDE = deque(maxlen=16)
 
-ghost_update_freq = 1
+bot_update_freq = 1
 pacer_update_freq = 1
+simulated_latency = 300 #makes bots animation smoother than using current time
+margin = 0.1 #avoids bots donuting in "just watch" (now player updates only once per second)
+last_pp_update = 0
+last_bot_update = 0
 last_pp_updates = {}
 last_bot_updates = {}
 global_ghosts = {}
@@ -113,7 +115,6 @@ global_bots = {}
 global_news = {} #player id to dictionary of peer_player_id->worldTime
 global_relay = {}
 global_clients = {}
-start_time = time.time()
 
 def sigint_handler(num, frame):
     httpd.shutdown()
@@ -140,7 +141,10 @@ class CDNHandler(SimpleHTTPRequestHandler):
             cookies = SimpleCookie()
             cookies.load(cookies_string)
             # We have no identifying information when Zwift makes MapSchedule request except for the client's IP.
-            MAP_OVERRIDE.append((self.client_address[0], cookies['selected_map'].value))
+            if 'selected_map' in cookies:
+                MAP_OVERRIDE.append((self.client_address[0], cookies['selected_map'].value))
+            if 'selected_climb' in cookies:
+                CLIMB_OVERRIDE.append((self.client_address[0], cookies['selected_climb'].value))
             self.send_response(302)
             self.send_header('Cookie', cookies_string)
             self.send_header('Location', 'https://secure.zwift.com/ride')
@@ -157,6 +161,17 @@ class CDNHandler(SimpleHTTPRequestHandler):
                     output = '<MapSchedule><appointments><appointment map="%s" start="%s"/></appointments><VERSION>1</VERSION></MapSchedule>' % (override[1], start.strftime("%Y-%m-%dT00:01-04"))
                     self.wfile.write(output.encode())
                     MAP_OVERRIDE.remove(override)
+                    return
+        if self.path == '/gameassets/PortalRoadSchedule_v1.xml':
+            for override in CLIMB_OVERRIDE:
+                if override[0] == self.client_address[0]:
+                    self.send_response(200)
+                    self.send_header('Content-type', 'text/xml')
+                    self.end_headers()
+                    start = datetime.today() - timedelta(days=1)
+                    output = '<PortalRoads><PortalRoadSchedule><appointments><appointment road="%s" portal="0" start="%s"/></appointments><VERSION>1</VERSION></PortalRoadSchedule></PortalRoads>' % (override[1], start.strftime("%Y-%m-%dT00:01-04"))
+                    self.wfile.write(output.encode())
+                    CLIMB_OVERRIDE.remove(override)
                     return
         exceptions = ['Launcher_ver_cur.xml', 'LauncherMac_ver_cur.xml',
                       'Zwift_ver_cur.xml', 'ZwiftMac_ver_cur.xml',
@@ -440,28 +455,33 @@ class TCPHandler(socketserver.BaseRequestHandler):
                 print('TCPHandler loop exception: %s' % repr(exc))
                 break
 
+class BotVariables:
+    profile = None
+    route = None
+    date = 0
+    position = 0
+
 class GhostsVariables:
     loaded = False
     started = False
     rec = None
-    play = []
+    play = None
     last_rec = 0
     last_play = 0
     last_rt = 0
     start_road = 0
     start_rt = 0
 
-def boolean(s):
-    if s.lower() in ['true', 'yes', '1']: return True
-    if s.lower() in ['false', 'no', '0']: return False
-    return None
-
 def save_ghost(name, player_id):
     if not player_id in global_ghosts.keys(): return
     ghosts = global_ghosts[player_id]
     if len(ghosts.rec.states) > 0:
-        folder = '%s/%s/ghosts/%s/%s' % (STORAGE_DIR, player_id, zo.get_course(ghosts.rec.states[0]), zo.road_id(ghosts.rec.states[0]))
-        if not zo.is_forward(ghosts.rec.states[0]): folder += '/reverse'
+        state = ghosts.rec.states[0]
+        folder = '%s/%s/ghosts/%s/' % (STORAGE_DIR, player_id, zo.get_course(state))
+        if state.route: folder += str(state.route)
+        else:
+            folder += str(zo.road_id(state))
+            if not zo.is_forward(state): folder += '/reverse'
         try:
             if not os.path.isdir(folder):
                 os.makedirs(folder)
@@ -473,48 +493,53 @@ def save_ghost(name, player_id):
         with open(f, 'wb') as fd:
             fd.write(ghosts.rec.SerializeToString())
 
+def load_ghosts_folder(folder, ghosts):
+    if os.path.isdir(folder):
+        for f in os.listdir(folder):
+            if f.endswith('.bin'):
+                with open(os.path.join(folder, f), 'rb') as fd:
+                    g = BotVariables()
+                    g.route = udp_node_msgs_pb2.Ghost()
+                    g.route.ParseFromString(fd.read())
+                    g.date = g.route.states[0].worldTime
+                    ghosts.play.append(g)
+
 def load_ghosts(player_id, state, ghosts):
-    folder = '%s/%s/ghosts/%s/%s' % (STORAGE_DIR, player_id, zo.get_course(state), zo.road_id(state))
-    if not zo.is_forward(state): folder += '/reverse'
-    if not os.path.isdir(folder): return
-    for f in os.listdir(folder):
-        if f.endswith('.bin'):
-            with open(os.path.join(folder, f), 'rb') as fd:
-                g = udp_node_msgs_pb2.Ghost()
-                g.ParseFromString(fd.read())
-                ghosts.play.append(g)
+    folder = '%s/%s/ghosts/%s' % (STORAGE_DIR, player_id, zo.get_course(state))
+    road_folder = '%s/%s' % (folder, zo.road_id(state))
+    if not zo.is_forward(state): road_folder += '/reverse'
+    load_ghosts_folder(road_folder, ghosts)
+    if state.route:
+        load_ghosts_folder('%s/%s' % (folder, state.route), ghosts)
     ghosts.start_road = zo.road_id(state)
     ghosts.start_rt = state.roadTime
-    if os.path.isfile(START_LINES_FILE):
-        with open(START_LINES_FILE, 'r') as fd:
-            sl = [tuple(line) for line in csv.reader(fd)]
-            rt = [t for t in sl if t[0] == str(zo.get_course(state)) and t[1] == str(zo.road_id(state)) and (boolean(t[2]) == zo.is_forward(state) or not t[2])]
-            if rt:
-                ghosts.start_road = int(rt[0][3])
-                ghosts.start_rt = int(rt[0][4])
+    with open('%s/start_lines.csv' % SCRIPT_DIR) as fd:
+        sl = [tuple(line) for line in csv.reader(fd)]
+        rt = [t for t in sl if t[0] == str(state.route)]
+        if rt:
+            ghosts.start_road = int(rt[0][1])
+            ghosts.start_rt = int(rt[0][2])
 
 def regroup_ghosts(player_id, ahead=False):
     p = online[player_id]
     ghosts = global_ghosts[player_id]
+    if not ghosts.loaded:
+        ghosts.loaded = True
+        load_ghosts(player_id, p, ghosts)
     if not ghosts.started and ghosts.play:
         ghosts.started = True
     for g in ghosts.play:
         states = []
-        for s in g.states:
+        for s in g.route.states:
             if zo.road_id(s) == zo.road_id(p) and zo.is_forward(s) == zo.is_forward(p):
                 states.append((s.roadTime, s.distance))
         if states:
             c = min(states, key=lambda x: sum(abs(r - d) for r, d in zip((p.roadTime, p.distance), x)))
             g.position = 0
-            while g.states[g.position].roadTime != c[0] or g.states[g.position].distance != c[1]:
+            while g.route.states[g.position].roadTime != c[0] or g.route.states[g.position].distance != c[1]:
                 g.position += 1
             if ahead:
                 g.position += 1
-
-class PacePartnerVariables:
-    profile = None
-    route = None
-    position = 0
 
 def load_pace_partners():
     for (root, dirs, files) in os.walk(PACE_PARTNERS_DIR):
@@ -525,7 +550,7 @@ def load_pace_partners():
                 with open(profile, 'rb') as fd:
                     p = profile_pb2.PlayerProfile()
                     p.ParseFromString(fd.read())
-                    global_pace_partners[p.id] = PacePartnerVariables()
+                    global_pace_partners[p.id] = BotVariables()
                     pp = global_pace_partners[p.id]
                     pp.profile = p
                 with open(route, 'rb') as fd:
@@ -534,63 +559,90 @@ def load_pace_partners():
                     pp.position = 0
 
 def play_pace_partners():
+    global last_pp_update
     while True:
         for pp_id in global_pace_partners.keys():
             pp = global_pace_partners[pp_id]
             if pp.position < len(pp.route.states) - 1: pp.position += 1
             else: pp.position = 0
-            state = pp.route.states[pp.position]
-            state.id = pp_id
-            state.watchingRiderId = pp_id
-            state.worldTime = zo.world_time()
-        ppthreadevent.wait(timeout=pacer_update_freq)
+            pp.route.states[pp.position].id = pp_id
+        last_pp_update = time.monotonic()
+        time.sleep(pacer_update_freq)
 
 def load_bots():
+    body_types = [16, 48, 80, 272, 304, 336, 528, 560, 592]
+    hair_types = [25953412, 175379869, 398510584, 659452569, 838618949, 924073005, 1022111028, 1262230565, 1305767757, 1569595897, 1626212425, 1985754517, 2234835005, 2507058825, 3092564365, 3200039653, 3296520581, 3351295312, 3536770137, 4021222889, 4179410997, 4294226781]
+    facial_hair_types = [248681634, 398510584, 867351826, 1947387842, 2173853954, 3169994930, 4131541011, 4216468066]
+    multiplier = 1
+    with open(ENABLE_BOTS_FILE) as f:
+        try:
+            multiplier = int(f.readline().rstrip('\r\n'))
+        except ValueError:
+            pass
+    bots_file = '%s/bot.txt' % STORAGE_DIR
+    if not os.path.isfile(bots_file):
+        bots_file = '%s/bot.txt' % SCRIPT_DIR
+    with open(bots_file) as f:
+        data = json.load(f)
     i = 1
+    loop_riders = []
     for name in os.listdir(STORAGE_DIR):
         path = '%s/%s/ghosts' % (STORAGE_DIR, name)
         if os.path.isdir(path):
             for (root, dirs, files) in os.walk(path):
                 for f in files:
                     if f.endswith('.bin'):
-                        p = profile_pb2.PlayerProfile()
-                        p.CopyFrom(zo.random_profile(p))
-                        p.id = i + 1000000
-                        global_bots[p.id] = PacePartnerVariables()
-                        bot = global_bots[p.id]
-                        bot.route = udp_node_msgs_pb2.Ghost()
-                        with open(os.path.join(root, f), 'rb') as fd:
-                            bot.route.ParseFromString(fd.read())
-                        bot.position = random.randrange(len(bot.route.states))
-                        p.first_name = ''
-                        p.last_name = zo.time_since(bot.route.states[0]) + ' [bot]'
-                        p.is_male = bool(random.getrandbits(1))
-                        p.country_code = 0
-                        bot.profile = p
+                        for n in range(0, multiplier):
+                            p = profile_pb2.PlayerProfile()
+                            p.CopyFrom(zo.random_profile(p))
+                            p.id = i + 1000000 + n * 10000
+                            global_bots[p.id] = BotVariables()
+                            bot = global_bots[p.id]
+                            if n == 0:
+                                bot.route = udp_node_msgs_pb2.Ghost()
+                                with open(os.path.join(root, f), 'rb') as fd:
+                                    bot.route.ParseFromString(fd.read())
+                            else:
+                                bot.route = global_bots[i + 1000000].route
+                            bot.position = random.randrange(len(bot.route.states))
+                            if not loop_riders:
+                                loop_riders = data['riders'].copy()
+                                random.shuffle(loop_riders)
+                            rider = loop_riders.pop()
+                            for item in ['first_name', 'last_name', 'is_male', 'country_code', 'ride_jersey', 'bike_frame', 'bike_wheel_front', 'bike_wheel_rear', 'ride_helmet_type', 'glasses_type', 'ride_shoes_type', 'ride_socks_type']:
+                                if item in rider:
+                                    setattr(p, item, rider[item])
+                            p.body_type = random.choice(body_types)
+                            p.hair_type = random.choice(hair_types)
+                            if p.is_male:
+                                p.facial_hair_type = random.choice(facial_hair_types)
+                            else:
+                                p.body_type += 1
+                            bot.profile = p
                         i += 1
 
 def play_bots():
+    global last_bot_update
     while True:
         if zo.reload_pacer_bots:
             zo.reload_pacer_bots = False
-            global_bots.clear()
-            load_bots()
+            if os.path.isfile(ENABLE_BOTS_FILE):
+                global_bots.clear()
+                load_bots()
         for bot_id in global_bots.keys():
             bot = global_bots[bot_id]
             if bot.position < len(bot.route.states) - 1: bot.position += 1
             else: bot.position = 0
-            state = bot.route.states[bot.position]
-            state.id = bot_id
-            state.watchingRiderId = bot_id
-            state.worldTime = zo.world_time()
-        botthreadevent.wait(timeout=ghost_update_freq)
+            bot.route.states[bot.position].id = bot_id
+        last_bot_update = time.monotonic()
+        time.sleep(bot_update_freq)
 
 def remove_inactive():
     while True:
         for p_id in list(online.keys()):
             if zo.world_time() > online[p_id].worldTime + 10000:
                 zo.logout_player(p_id)
-        rithreadevent.wait(timeout=1)
+        time.sleep(1)
 
 def get_empty_message(player_id):
     message = udp_node_msgs_pb2.ServerToClient()
@@ -682,14 +734,14 @@ class UDPHandler(socketserver.BaseRequestHandler):
         if not player_id in last_bot_updates.keys():
             last_bot_updates[player_id] = 0
 
-        t = int(zo.get_utc_time())
+        t = time.monotonic()
 
         #Update player online state
         if state.roadTime:
             if player_id in online.keys():
                 if online[player_id].worldTime > state.worldTime:
                     return #udp is unordered -> drop old state
-            elif time.time() > start_time + 10:
+            else:
                 discord.change_presence(len(online) + 1)
             online[player_id] = state
 
@@ -697,17 +749,18 @@ class UDPHandler(socketserver.BaseRequestHandler):
         if not player_id in global_ghosts.keys():
             global_ghosts[player_id] = GhostsVariables()
             global_ghosts[player_id].rec = udp_node_msgs_pb2.Ghost()
+            global_ghosts[player_id].play = []
 
         ghosts = global_ghosts[player_id]
 
         if player_id in ghosts_enabled and ghosts_enabled[player_id]:
-            #Load ghosts for current course
-            if not ghosts.loaded and zo.get_course(state):
-                ghosts.loaded = True
-                load_ghosts(player_id, state, ghosts)
-            #Save player state as ghost if moving
             if state.roadTime and ghosts.last_rt and state.roadTime != ghosts.last_rt:
-                if t >= ghosts.last_rec + ghost_update_freq:
+                #Load ghosts when start moving (as of version 1.39 player sometimes enters course 6 road 0 at home screen)
+                if not ghosts.loaded:
+                    ghosts.loaded = True
+                    load_ghosts(player_id, state, ghosts)
+                #Save player state as ghost
+                if t > ghosts.last_rec + bot_update_freq - margin:
                     ghosts.rec.states.append(state)
                     ghosts.last_rec = t
                 #Start loaded ghosts
@@ -734,8 +787,8 @@ class UDPHandler(socketserver.BaseRequestHandler):
             watching_state = bot.route.states[bot.position]
         elif state.watchingRiderId > 10000000:
             ghost = ghosts.play[math.floor(state.watchingRiderId / 10000000) - 1]
-            if len(ghost.states) > ghost.position:
-                watching_state = ghost.states[ghost.position]
+            if len(ghost.route.states) > ghost.position:
+                watching_state = ghost.route.states[ghost.position]
 
         #Check if online players, pace partners, bots and ghosts are nearby
         nearby = {}
@@ -745,32 +798,30 @@ class UDPHandler(socketserver.BaseRequestHandler):
                 is_nearby, distance = nearby_distance(watching_state, player)
                 if is_nearby and is_state_new_for(player, player_id):
                     nearby[p_id] = distance
-        if t >= last_pp_updates[player_id] + pacer_update_freq:
+        if t > last_pp_updates[player_id] + pacer_update_freq - margin and last_pp_update > last_pp_updates[player_id]:
             last_pp_updates[player_id] = t
             for p_id in global_pace_partners.keys():
-                pace_partner_variables = global_pace_partners[p_id]
-                pace_partner = pace_partner_variables.route.states[pace_partner_variables.position]
+                pp = global_pace_partners[p_id]
+                pace_partner = pp.route.states[pp.position]
                 is_nearby, distance = nearby_distance(watching_state, pace_partner)
                 if is_nearby:
                     nearby[p_id] = distance
-        if t >= last_bot_updates[player_id] + ghost_update_freq:
+        if t > last_bot_updates[player_id] + bot_update_freq - margin and last_bot_update > last_bot_updates[player_id]:
             last_bot_updates[player_id] = t
             for p_id in global_bots.keys():
-                bot_variables = global_bots[p_id]
-                bot = bot_variables.route.states[bot_variables.position]
+                b = global_bots[p_id]
+                bot = b.route.states[b.position]
                 is_nearby, distance = nearby_distance(watching_state, bot)
                 if is_nearby:
                     nearby[p_id] = distance
-        elif ghosts.started and t >= ghosts.last_play + ghost_update_freq:
+        if ghosts.started and t > ghosts.last_play + bot_update_freq - margin:
             ghosts.last_play = t
-            ghost_id = 1
-            for g in ghosts.play:
-                if len(g.states) > g.position:
-                    is_nearby, distance = nearby_distance(watching_state, g.states[g.position])
+            for i, g in enumerate(ghosts.play):
+                if len(g.route.states) > g.position:
+                    is_nearby, distance = nearby_distance(watching_state, g.route.states[g.position])
                     if is_nearby:
-                        nearby[player_id + ghost_id * 10000000] = distance
+                        nearby[player_id + (i + 1) * 10000000] = distance
                     g.position += 1
-                ghost_id += 1
 
         #Send nearby riders states or empty message
         message = get_empty_message(player_id)
@@ -784,17 +835,18 @@ class UDPHandler(socketserver.BaseRequestHandler):
                 if p_id in online.keys():
                     player = online[p_id]
                 elif p_id in global_pace_partners.keys():
-                    pace_partner_variables = global_pace_partners[p_id]
-                    player = pace_partner_variables.route.states[pace_partner_variables.position]
+                    pp = global_pace_partners[p_id]
+                    player = pp.route.states[pp.position]
+                    player.worldTime = zo.world_time() - simulated_latency
                 elif p_id in global_bots.keys():
-                    bot_variables = global_bots[p_id]
-                    player = bot_variables.route.states[bot_variables.position]
+                    bot = global_bots[p_id]
+                    player = bot.route.states[bot.position]
+                    player.worldTime = zo.world_time() - simulated_latency
                 elif p_id > 10000000:
-                    player = udp_node_msgs_pb2.PlayerState()
                     ghost = ghosts.play[math.floor(p_id / 10000000) - 1]
-                    player.CopyFrom(ghost.states[ghost.position - 1])
+                    player = ghost.route.states[ghost.position - 1]
                     player.id = p_id
-                    player.worldTime = zo.world_time()
+                    player.worldTime = zo.world_time() - simulated_latency
                 if player != None:
                     if len(message.states) > 9:
                         message.world_time = zo.world_time()
@@ -819,13 +871,11 @@ class UDPHandler(socketserver.BaseRequestHandler):
 
 if os.path.isdir(PACE_PARTNERS_DIR):
     load_pace_partners()
-    ppthreadevent = threading.Event()
     pp = threading.Thread(target=play_pace_partners)
     pp.start()
 
-if os.path.isfile('%s/enable_bots.txt' % STORAGE_DIR):
+if os.path.isfile(ENABLE_BOTS_FILE):
     load_bots()
-    botthreadevent = threading.Event()
     bot = threading.Thread(target=play_bots)
     bot.start()
 
@@ -846,7 +896,6 @@ udpserver_thread = threading.Thread(target=udpserver.serve_forever)
 udpserver_thread.daemon = True
 udpserver_thread.start()
 
-rithreadevent = threading.Event()
 ri = threading.Thread(target=remove_inactive)
 ri.start()
 
