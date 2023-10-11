@@ -26,7 +26,7 @@ import xml.etree.ElementTree as ET
 from copy import deepcopy
 from functools import wraps
 from io import BytesIO
-from shutil import copyfile
+from shutil import copyfile, rmtree
 from logging.handlers import RotatingFileHandler
 from urllib.parse import quote
 from flask import Flask, request, jsonify, redirect, render_template, url_for, flash, session, abort, make_response, send_file, send_from_directory
@@ -821,6 +821,7 @@ def garmin(username):
             flash("Garmin credentials can't be empty.")
             return render_template("garmin.html", username=current_user.username)
         encrypt_credentials(file, (request.form['username'], request.form['password']))
+        rmtree('%s/%s/garth' % (STORAGE_DIR, current_user.player_id), ignore_errors=True)
         return redirect(url_for('settings', username=current_user.username))
     cred = decrypt_credentials(file)
     return render_template("garmin.html", username=current_user.username, uname=cred[0], passw=cred[1])
@@ -2093,8 +2094,7 @@ def garmin_upload(player_id, activity):
             logger.warning("Garmin login failed: %s" % repr(exc))
             return
     try:
-        requests.post('https://connect.garmin.com/upload-service/upload/.fit', files={'file': BytesIO(activity.fit)},
-            headers={'NK': 'NT', 'authorization': garth.client.oauth2_token.__str__(), 'di-backend': 'connectapi.garmin.com'})
+        garth.client.post("connectapi", "/upload-service/upload", api=True, files={"file": (activity.fit_filename, BytesIO(activity.fit))})
     except Exception as exc:
         logger.warning("Garmin upload failed. No internet? %s" % repr(exc))
 
