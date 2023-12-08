@@ -169,7 +169,7 @@ class User(UserMixin, db.Model):
         return self.player_id
 
     def get_token(self):
-        dt = datetime.datetime.utcnow() + datetime.timedelta(minutes=30)
+        dt = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(minutes=30)
         return jwt.encode({'user': self.player_id, 'exp': dt}, app.config['SECRET_KEY'], algorithm='HS256')
 
     @staticmethod
@@ -435,7 +435,7 @@ GD = load_game_dictionary()
 
 
 def get_utc_time():
-    return datetime.datetime.utcnow().timestamp()
+    return datetime.datetime.now(datetime.timezone.utc).timestamp()
 
 def get_time():
     return datetime.datetime.now().timestamp()
@@ -1497,9 +1497,18 @@ def relay_race_event_starting_line_id(event_id):
 @jwt_to_session_cookie
 @login_required
 def api_zfiles():
-    zfile = zfiles_pb2.ZFileProto()
-    zfile.ParseFromString(request.stream.read())
-    zfiles_dir = os.path.join(STORAGE_DIR, str(current_user.player_id), zfile.folder)
+    if request.headers['Source'] == 'zwift-companion':
+        zfile = json.loads(request.stream.read())
+        zfile_folder = zfile['folder']
+        zfile_filename = zfile['name']
+        zfile_file = base64.b64decode(zfile['content'])
+    else:
+        zfile = zfiles_pb2.ZFileProto()
+        zfile.ParseFromString(request.stream.read())
+        zfile_folder = zfile.folder
+        zfile_filename = zfile.filename
+        zfile_file = zfile.file
+    zfiles_dir = os.path.join(STORAGE_DIR, str(current_user.player_id), zfile_folder)
     try:
         if not os.path.isdir(zfiles_dir):
             os.makedirs(zfiles_dir)
@@ -1507,22 +1516,31 @@ def api_zfiles():
         logger.error("failed to create zfiles dir (%s):  %s", zfiles_dir, str(e))
         return '', 400
     try:
-        zfile.filename = zfile.filename.decode('utf-8', 'ignore')
+        zfile_filename = zfile_filename.decode('utf-8', 'ignore')
     except AttributeError:
         pass
-    with open(os.path.join(zfiles_dir, quote(zfile.filename, safe=' ')), 'wb') as fd:
-        fd.write(zfile.file)
-    row = Zfile.query.filter_by(folder=zfile.folder, filename=zfile.filename, player_id=current_user.player_id).first()
+    with open(os.path.join(zfiles_dir, quote(zfile_filename, safe=' ')), 'wb') as fd:
+        fd.write(zfile_file)
+    row = Zfile.query.filter_by(folder=zfile_folder, filename=zfile_filename, player_id=current_user.player_id).first()
     if not row:
-        zfile.timestamp = int(get_utc_time())
-        new_zfile = Zfile(folder=zfile.folder, filename=zfile.filename, timestamp=zfile.timestamp, player_id=current_user.player_id)
+        zfile_timestamp = int(get_utc_time())
+        new_zfile = Zfile(folder=zfile_folder, filename=zfile_filename, timestamp=zfile_timestamp, player_id=current_user.player_id)
         db.session.add(new_zfile)
         db.session.commit()
-        zfile.id = new_zfile.id
+        zfile_id = new_zfile.id
     else:
-        zfile.id = row.id
-        zfile.timestamp = row.timestamp
-    return zfile.SerializeToString(), 200
+        zfile_id = row.id
+        zfile_timestamp = row.timestamp
+    if request.headers['Accept'] == 'application/json':
+        return jsonify({"id":zfile_id,"folder":zfile_folder,"name":zfile_filename,"content":None,"lastModified":str_timestamp(zfile_timestamp*1000)})
+    else:
+        response = zfiles_pb2.ZFileProto()
+        response.id = zfile_id
+        response.folder = zfile_folder
+        response.filename = zfile_filename
+        response.timestamp = zfile_timestamp
+        return response.SerializeToString(), 200
+
 
 @app.route('/api/zfiles/list', methods=['GET'])
 @jwt_to_session_cookie
@@ -2298,7 +2316,7 @@ def api_profiles_activities_rideon(receiving_player_id):
     return '{}', 200
 
 def stime_to_timestamp(stime):
-    utc_offset = datetime.datetime.fromtimestamp(0) - datetime.datetime.utcfromtimestamp(0)
+    utc_offset = datetime.datetime.now().astimezone().utcoffset()
     try:
         return int((datetime.datetime.strptime(stime, '%Y-%m-%dT%H:%M:%SZ') + utc_offset).timestamp())
     except:
@@ -2669,7 +2687,7 @@ def unix_time_millis(dt):
 
 def fill_in_goal_progress(goal, player_id):
     local_now = datetime.datetime.now()
-    utc_offset = datetime.datetime.fromtimestamp(0) - datetime.datetime.utcfromtimestamp(0)
+    utc_offset = datetime.datetime.now().astimezone().utcoffset()
     if goal.periodicity == 0:  # weekly
         first_dt, last_dt = get_week_range(local_now)
     else:  # monthly
@@ -2701,7 +2719,7 @@ def fill_in_goal_progress(goal, player_id):
 
 def set_goal_end_date_now(goal):
     local_now = datetime.datetime.now()
-    utc_offset = int((datetime.datetime.fromtimestamp(0) - datetime.datetime.utcfromtimestamp(0)).total_seconds())
+    utc_offset = int(datetime.datetime.now().astimezone().utcoffset().total_seconds())
     if goal.periodicity == 0:  # weekly
         goal.period_end_date = unix_time_millis(get_week_range(local_now)[1]) - utc_offset
     else:  # monthly
@@ -2723,7 +2741,7 @@ def str_timestamp(ts):
     else:
         sec = int(ts/1000)
         ms = ts % 1000
-        return datetime.datetime.utcfromtimestamp(sec).strftime('%Y-%m-%dT%H:%M:%S.') + str(ms).zfill(3) + "+0000"
+        return datetime.datetime.fromtimestamp(sec, datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.') + str(ms).zfill(3) + "+0000"
 
 def str_timestamp_json(ts):
     if ts == 0:
@@ -2775,8 +2793,8 @@ def select_protobuf_goals(player_id, limit):
         for row in rows:
             goal = goals.goals.add()
             row_to_protobuf(row, goal)
-            end_dt = datetime.datetime.fromtimestamp(goal.period_end_date / 1000)
-            if end_dt < datetime.datetime.utcnow():
+            end_dt = datetime.datetime.fromtimestamp(goal.period_end_date / 1000, datetime.timezone.utc)
+            if end_dt < datetime.datetime.now(datetime.timezone.utc):
                 need_update.append(goal)
             fill_in_goal_progress(goal, player_id)
         for goal in need_update:
@@ -2807,7 +2825,7 @@ def api_profiles_goals(player_id):
             str_goal = request.stream.read()
             json_goal = json.loads(str_goal)
             goal = goalJsonToProtobuf(json_goal)
-        goal.created_on = unix_time_millis(datetime.datetime.utcnow())
+        goal.created_on = unix_time_millis(datetime.datetime.now(datetime.timezone.utc))
         set_goal_end_date_now(goal)
         fill_in_goal_progress(goal, player_id)
         goal.id = insert_protobuf_into_db(Goal, goal)
@@ -3144,7 +3162,7 @@ def api_segment_results():
     if result.segment_id == 1:
         return '', 400
     result.world_time = world_time()
-    result.finish_time_str = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+    result.finish_time_str = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     result.sport = 0
     result.id = insert_protobuf_into_db(SegmentResult, result)
 
@@ -3202,8 +3220,20 @@ def api_personal_records_my_records():
 @jwt_to_session_cookie
 @login_required
 def api_personal_records_my_segment_ride_stats(sport):
-    # TODO
-    return '', 200
+    if not request.args.get('segmentId'):
+        return '', 422
+    stats = segment_result_pb2.SegmentRideStats()
+    stats.segment_id = int(request.args.get('segmentId'))
+    where_stmt = "WHERE segment_id = :s AND player_id = :p AND sport = :sp"
+    args = {"s": stats.segment_id, "p": current_user.player_id, "sp": profile_pb2.Sport.Value(sport)}
+    row = db.session.execute(sqlalchemy.text("SELECT * FROM segment_result %s ORDER BY elapsed_ms LIMIT 1" % where_stmt), args).first()
+    if row:
+        stats.number_of_results = db.session.execute(sqlalchemy.text("SELECT COUNT(*) FROM segment_result %s" % where_stmt), args).scalar()
+        stats.latest_time = row.elapsed_ms # Zwift sends only best
+        stats.latest_percentile = 100
+        stats.best_time = row.elapsed_ms
+        stats.best_percentile = 100
+    return stats.SerializeToString(), 200
 
 
 @app.route('/api/personal-records/results/summary/profiles/me/<sport>', methods=['GET'])
