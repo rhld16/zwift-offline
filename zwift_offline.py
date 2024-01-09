@@ -1264,6 +1264,31 @@ def api_users_login():
     udp_node.port = 3023
     response.relay_session_id = player_id
     response.expiration = 70
+    profile_dir = os.path.join(STORAGE_DIR, str(current_user.player_id))
+    config_file = os.path.join(profile_dir, 'economy_config.txt')
+    if not os.path.isfile(config_file):
+        with open(os.path.join(SCRIPT_DIR, 'economy_config.txt')) as f:
+            economy_config = json.load(f)
+        profile_file = os.path.join(profile_dir, 'profile.bin')
+        if os.path.isfile(profile_file):
+            profile = profile_pb2.PlayerProfile()
+            with open(profile_file, 'rb') as f:
+                profile.ParseFromString(f.read())
+            current_level = profile.achievement_level // 100
+            levels = [x for x in economy_config['cycling_levels'] if x['level'] >= current_level]
+            if len(levels) > 1 and profile.total_xp > levels[1]['xp']:
+                offset = profile.total_xp - levels[0]['xp']
+                transition_end = [x for x in levels if x['xp'] <= profile.total_xp][-1]['level']
+                for level in economy_config['cycling_levels']:
+                    if level['level'] >= current_level:
+                        level['xp'] += offset
+                if transition_end > current_level:
+                    economy_config['transition_start'] = current_level
+                    economy_config['transition_end'] = transition_end
+        with open(config_file, 'w') as f:
+            json.dump(economy_config, f, indent=2)
+    with open(config_file) as f:
+        Parse(f.read(), response.economy_config)
     return response.SerializeToString(), 200
 
 
@@ -1312,7 +1337,7 @@ def get_events(limit, sport):
     events_list = [('2022 Bambino Fondo', 3368626651, 6),
                    ('2022 Medio Fondo', 2900074211, 6),
                    ('2022 Gran Fondo', 1327147942, 6),
-                   ('Alpe du Zwift Downhill', 1480439148, 6),
+                   ('Big Flat 8', 1917017591, 6),
                    ('Bologna TT', 2843604888, 10),
                    ('Crit City', 947394567, 12),
                    ('Crit City Reverse', 2875658892, 12),
@@ -1320,8 +1345,8 @@ def get_events(limit, sport):
                    ('Gravel Mountain', 3687150686, 16),
                    ('Gravel Mountain Reverse', 2956533021, 16),
                    ('Neokyo Crit', 1127056801, 13),
+                   ('Spiral into the Volcano', 3261167746, 6),
                    ('The Magnificent 8', 2207442179, 6),
-                   ('Ventop Downhill', 2891361683, 14),
                    ('WBR Climbing Series', 2218409282, 6),
                    ('Zwift Bambino Fondo', 3621162212, 6),
                    ('Zwift Medio Fondo', 3748780161, 6),
@@ -1372,8 +1397,8 @@ def get_events(limit, sport):
             #event_cat.lineUpStartWT = eventStartWT - 5 * 60000
             #event_cat.lineUpEnd = eventStart
             #event_cat.lineUpEndWT = eventStartWT
-            #event_cat.eventSubgroupStart = eventStart
-            #event_cat.eventSubgroupStartWT = eventStartWT
+            event_cat.eventSubgroupStart = eventStart - 60000 # fixes HUD timer
+            event_cat.eventSubgroupStartWT = eventStartWT - 60000
             event_cat.route_id = item[1]
             event_cat.startLocation = cat
             event_cat.label = cat
