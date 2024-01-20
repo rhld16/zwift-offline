@@ -87,8 +87,6 @@ SSL_DIR = "%s/ssl" % SCRIPT_DIR
 DATABASE_PATH = "%s/zwift-offline.db" % STORAGE_DIR
 DATABASE_CUR_VER = 3
 
-PACE_PARTNERS_DIR = "%s/pace_partners" % SCRIPT_DIR
-
 # For auth server
 AUTOLAUNCH_FILE = "%s/auto_launch.txt" % STORAGE_DIR
 SERVER_IP_FILE = "%s/server-ip.txt" % STORAGE_DIR
@@ -96,7 +94,16 @@ if os.path.exists(SERVER_IP_FILE):
     with open(SERVER_IP_FILE, 'r') as f:
         server_ip = f.read().rstrip('\r\n')
 else:
-    server_ip = '127.0.0.1'
+    import socket
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        s.connect(('10.254.254.254', 1))
+        server_ip = s.getsockname()[0]
+    except:
+        server_ip = '127.0.0.1'
+    finally:
+        s.close()
+    logger.info("server-ip.txt not found, using %s", server_ip)
 SECRET_KEY_FILE = "%s/secret-key.txt" % STORAGE_DIR
 ENABLEGHOSTS_FILE = "%s/enable_ghosts.txt" % STORAGE_DIR
 MULTIPLAYER = os.path.exists("%s/multiplayer.txt" % STORAGE_DIR)
@@ -1257,10 +1264,7 @@ def api_users_login():
     response.info.apis.trainingpeaks_url = "https://api.trainingpeaks.com"
     response.info.time = int(time.time())
     udp_node = response.info.nodes.nodes.add()
-    if request.remote_addr == '127.0.0.1':  # to avoid needing hairpinning
-        udp_node.ip = "127.0.0.1"
-    else:
-        udp_node.ip = server_ip  # TCP telemetry server
+    udp_node.ip = server_ip  # TCP telemetry server
     udp_node.port = 3023
     response.relay_session_id = player_id
     response.expiration = 70
@@ -2866,10 +2870,7 @@ def api_profiles_goals_id(player_id, goal_id):
 def api_tcp_config():
     infos = per_session_info_pb2.TcpConfig()
     info = infos.nodes.add()
-    if request.remote_addr == '127.0.0.1':  # to avoid needing hairpinning
-        info.ip = "127.0.0.1"
-    else:
-        info.ip = server_ip
+    info.ip = server_ip
     info.port = 3023
     return infos.SerializeToString(), 200
 
@@ -3447,7 +3448,7 @@ def achievement_loadPlayerAchievements():
     achievements = profile_pb2.Achievements()
     with open(achievements_file, 'rb') as f:
         achievements.ParseFromString(f.read())
-    climbs = SegmentResult.query.filter(SegmentResult.player_id == current_user.player_id, SegmentResult.segment_id.between(10000, 11000)).count()
+    climbs = RouteResult.query.filter(RouteResult.player_id == current_user.player_id, RouteResult.route_hash.between(10000, 11000)).count()
     if climbs:
         if not any(a.id == 211 for a in achievements.achievements):
             achievements.achievements.add().id = 211 # Portal Climber
