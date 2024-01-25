@@ -28,6 +28,15 @@ for directory in os.listdir(worlds):
     world = directory[5:]
     if os.path.isdir(os.path.join(worlds, directory)) and world in world_names:
         subprocess.run(['wad_unpack.exe', os.path.join(worlds, directory, 'data_1.wad')])
+        with open(os.path.join('Worlds', directory, 'entities.xml')) as f:
+            xml = ''.join(f.readlines()[4:])
+        tree = ET.fromstring(re.sub(r"(<\?xml[^>]+\?>)", r"\1<root>", xml) + "</root>")
+        timingArchs = []
+        for ent in tree.find('world/entities').iter('ent'):
+            if ent.get('type') == 'ENTITY_TYPE_TIMINGARCH':
+                road = ent.get('m_roadId')
+                roadTime = int(float(ent.get('m_roadTime')) * 1000000 + 5000)
+                timingArchs.append((0 if road is None else int(road), roadTime))
         routes = os.path.join('Worlds', directory, 'routes')
         for file in os.listdir(routes):
             with open(os.path.join(routes, file)) as f:
@@ -37,8 +46,18 @@ for directory in os.listdir(worlds):
             name = route.get('name').strip()
             nameHash = int.from_bytes(int(route.get('nameHash')).to_bytes(4, 'little'), 'little', signed=True)
             checkpoints = list(tree.find('highrescheckpoint').iter('entry'))
-            startRoad = checkpoints[0].get('road')
+            startRoad = int(checkpoints[0].get('road'))
             startTime = int(float(checkpoints[0].get('time')) * 1000000 + 5000)
+            archs = [x[1] for x in timingArchs if x[0] == startRoad]
+            if archs:
+                nearest = min(archs, key=lambda x: abs(x - startTime))
+                if abs(nearest - startTime) < 1000:
+                    startTime = nearest
+                else:
+                    loop = 1005000 - startTime
+                    nearest = min(archs, key=lambda x: abs(x - loop))
+                    if abs(nearest - loop) < 1000:
+                        startTime = nearest
             data.append([nameHash, startRoad, startTime, world_names[world], name])
 
 with open('start_lines.csv', 'w', newline='') as f:
