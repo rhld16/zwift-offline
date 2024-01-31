@@ -147,6 +147,7 @@ app.config['MAX_CONTENT_LENGTH'] = 1024 * 1024
 db = SQLAlchemy()
 db.init_app(app)
 
+online = {}
 zc_connect_queue = {}
 player_partial_profiles = {}
 restarting = False
@@ -871,7 +872,7 @@ def enqueue_player_update(player_id, wa_bytes):
         player_update_queue[player_id] = list()
     player_update_queue[player_id].append(wa_bytes)
 
-def send_message_to_all_online(message, sender='Server'):
+def send_message(message, sender='Server', recipients=online.keys()):
     player_update = udp_node_msgs_pb2.WorldAttribute()
     player_update.server_realm = udp_node_msgs_pb2.ZofflineConstants.RealmID
     player_update.wa_type = udp_node_msgs_pb2.WA_TYPE.WAT_SPA
@@ -891,7 +892,7 @@ def send_message_to_all_online(message, sender='Server'):
 
     player_update.payload = chat_message.SerializeToString()
     player_update_s = player_update.SerializeToString()
-    for receiving_player_id in online.keys():
+    for receiving_player_id in recipients:
         enqueue_player_update(receiving_player_id, player_update_s)
 
 
@@ -899,12 +900,12 @@ def send_restarting_message():
     global restarting
     global restarting_in_minutes
     while restarting:
-        send_message_to_all_online('Restarting / Shutting down in %s minutes. Save your progress or continue riding until server is back online' % restarting_in_minutes)
+        send_message('Restarting / Shutting down in %s minutes. Save your progress or continue riding until server is back online' % restarting_in_minutes)
         time.sleep(60)
         restarting_in_minutes -= 1
         if restarting and restarting_in_minutes == 0:
             message = 'See you later! Look for the back online message.'
-            send_message_to_all_online(message)
+            send_message(message)
             discord.send_message(message)
             time.sleep(6)
             os.system("sudo systemctl restart zoffline.service")
@@ -935,7 +936,7 @@ def cancel_restart_server():
         restarting = False
         restarting_in_minutes = 0
         message = 'Restart of the server has been cancelled. Ride on!'
-        send_message_to_all_online(message)
+        send_message(message)
         discord.send_message(message)
     return redirect(url_for('user_home', username=current_user.username))
 
@@ -1361,7 +1362,6 @@ def get_events(limit, sport):
                    ('Spiral into the Volcano', 3261167746, 6),
                    ('The Magnificent 8', 2207442179, 6),
                    ('WBR Climbing Series', 2218409282, 6),
-                   ('Zwift Games 2024 - Epic', 762151244, 6),
                    ('Zwift Bambino Fondo', 3621162212, 6),
                    ('Zwift Medio Fondo', 3748780161, 6),
                    ('Zwift Gran Fondo', 242381847, 6)]
@@ -3144,11 +3144,14 @@ def relay_worlds_attributes():
         chat_message.ParseFromString(player_update.payload)
         if chat_message.player_id in online:
             state = online[chat_message.player_id]
-            if chat_message.message == '.regroup':
-                regroup_ghosts(chat_message.player_id, True)
-                return '', 201
-            if chat_message.message == '.startline':
-                logger.info('course %s road %s isForward %s roadTime %s route %s' % (get_course(state), road_id(state), is_forward(state), state.roadTime, state.route))
+            if chat_message.message.startswith('.'):
+                command = chat_message.message[1:]
+                if command == 'regroup':
+                    regroup_ghosts(chat_message.player_id, True)
+                elif command == 'position':
+                    logger.info('course %s road %s isForward %s roadTime %s route %s' % (get_course(state), road_id(state), is_forward(state), state.roadTime, state.route))
+                else:
+                    send_message('Invalid command: %s' % command, recipients=[chat_message.player_id])
                 return '', 201
         discord.send_message(chat_message.message, chat_message.player_id)
     for receiving_player_id in online.keys():
@@ -3667,7 +3670,7 @@ def check_columns(table_class, table_name):
 def send_server_back_online_message():
     time.sleep(30)
     message = "We're back online. Ride on!"
-    send_message_to_all_online(message)
+    send_message(message)
     discord.send_message(message)
 
 
