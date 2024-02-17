@@ -22,7 +22,6 @@ import uuid
 import jwt
 import sqlalchemy
 import fitdecode
-import xml.etree.ElementTree as ET
 from copy import deepcopy
 from functools import wraps
 from io import BytesIO
@@ -153,6 +152,9 @@ player_partial_profiles = {}
 restarting = False
 restarting_in_minutes = 0
 reload_pacer_bots = False
+
+with open(os.path.join(SCRIPT_DIR, "data", "game_dictionary.txt")) as f:
+    GD = json.load(f, object_hook=lambda d: {int(k) if k.lstrip('-').isdigit() else k: v for k, v in d.items()})
 
 class User(UserMixin, db.Model):
     player_id = db.Column(db.Integer, primary_key=True)
@@ -404,44 +406,6 @@ courses_lookup = {
     16: 'Gravel Mountain',  # event specific
     17: 'Scotland'
 }
-
-def load_game_dictionary():
-    tree = ET.parse('%s/cdn/gameassets/GameDictionary.xml' % SCRIPT_DIR)
-    root = tree.getroot()
-    gd = {}
-    gd['headgears'] = [int(x.get('signature')) for x in root.findall("./HEADGEARS/HEADGEAR")]
-    gd['glasses'] = [int(x.get('signature')) for x in root.findall("./GLASSES/GLASS")]
-    gd['bikeshoes'] = [int(x.get('signature')) for x in root.findall("./BIKESHOES/BIKESHOE")]
-    gd['socks'] = [int(x.get('signature')) for x in root.findall("./SOCKS/SOCK")]
-    gd['jerseys'] = [int(x.get('signature')) for x in root.findall("./JERSEYS/JERSEY")]
-    frontwheels = {}
-    for x in root.findall("./BIKEFRONTWHEELS/BIKEFRONTWHEEL"):
-        frontwheels[x.get('name')] = int(x.get('signature'))
-    rearwheels = {}
-    for x in root.findall("./BIKEREARWHEELS/BIKEREARWHEEL"):
-        rearwheels[x.get('name')] = int(x.get('signature'))
-    gd['wheels'] = []
-    for wheel in rearwheels:
-        if wheel in frontwheels:
-            gd['wheels'].append((rearwheels[wheel], frontwheels[wheel]))
-    gd['runshirts'] = [int(x.get('signature')) for x in root.findall("./RUNSHIRTS/RUNSHIRT")]
-    gd['runshorts'] = [int(x.get('signature')) for x in root.findall("./RUNSHORTS/RUNSHORT")]
-    gd['runshoes'] = [int(x.get('signature')) for x in root.findall("./RUNSHOES/RUNSHOE")]
-    bikeframes = {}
-    for x in root.findall("./BIKEFRAMES/BIKEFRAME"):
-        bikeframes[int(x.get('signature'))] = x.get('name')
-    gd['bikeframes'] = bikeframes
-    routes = {}
-    for x in root.findall("./ACHIEVEMENTS/ACHIEVEMENT"):
-        if x.get('imageName') == "RouteComplete": routes[x.get('name')] = int(x.get('signature'))
-    achievements = {}
-    for x in root.findall("./ROUTES/ROUTE"):
-        name = x.get('name').upper()
-        if name in routes: achievements[routes[name]] = int(x.get('signature'))
-    gd['achievements'] = achievements
-    return gd
-
-GD = load_game_dictionary()
 
 
 def get_online():
@@ -3324,10 +3288,11 @@ def api_route_results_completion_stats_all():
         for achievement in achievements.achievements:
             if achievement.id in GD['achievements']:
                 badges.append(GD['achievements'][achievement.id])
-    if db.session.execute(sqlalchemy.text("SELECT COUNT(*) FROM route_result WHERE player_id = :p"), {"p": player_id}).scalar() < len(badges):
-        for badge in badges:
+    results = [r[0] for r in db.session.execute(sqlalchemy.text("SELECT route_hash FROM route_result WHERE player_id = :p"), {"p": player_id})]
+    for badge in badges:
+        if not badge in results:
             db.session.add(RouteResult(player_id=player_id, route_hash=badge))
-        db.session.commit()
+            db.session.commit()
     stats = []
     rows = db.session.execute(sqlalchemy.text("SELECT route_hash, min(world_time) AS first, max(world_time) AS last FROM route_result WHERE player_id = :p GROUP BY route_hash"), {"p": player_id})
     for row in rows:
