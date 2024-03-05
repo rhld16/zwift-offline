@@ -153,6 +153,9 @@ restarting = False
 restarting_in_minutes = 0
 reload_pacer_bots = False
 
+with open(os.path.join(SCRIPT_DIR, "data", "climbs.txt")) as f:
+    CLIMBS = json.load(f)
+
 with open(os.path.join(SCRIPT_DIR, "data", "game_dictionary.txt")) as f:
     GD = json.load(f, object_hook=lambda d: {int(k) if k.lstrip('-').isdigit() else k: v for k, v in d.items()})
 
@@ -827,7 +830,7 @@ def intervals(username):
 @app.route("/user/<username>/")
 @login_required
 def user_home(username):
-    return render_template("user_home.html", username=current_user.username, enable_ghosts=bool(current_user.enable_ghosts),
+    return render_template("user_home.html", username=current_user.username, enable_ghosts=bool(current_user.enable_ghosts), climbs=CLIMBS,
         online=get_online(), is_admin=current_user.is_admin, restarting=restarting, restarting_in_minutes=restarting_in_minutes)
 
 def enqueue_player_update(player_id, wa_bytes):
@@ -1037,11 +1040,16 @@ def api_eventfeed():
         json_data.append({"event": e})
     return jsonify({"data":json_data,"cursor":None})
 
+@app.route('/api/recommendations/recommendation', methods=['GET'])
+def api_recommendations_recommendation():
+    return jsonify([{"type": "EVENT"}])
+
 @app.route('/api/campaign/profile/campaigns', methods=['GET'])
 @app.route('/api/announcements/active', methods=['GET'])
 @app.route('/api/recommendation/profile', methods=['GET'])
-@app.route('/api/recommendations/recommendation', methods=['GET'])
 @app.route('/api/subscription/plan', methods=['GET'])
+@app.route('/api/quest/quests/all-quests', methods=['GET'])
+@app.route('/api/quest/quests/my-quests', methods=['GET'])
 def api_empty_arrays():
     return jsonify([])
 
@@ -1203,6 +1211,7 @@ def api_clubs_club_my_clubs_summary():
 @app.route('/api/player-playbacks/player/settings', methods=['GET', 'POST']) # TODO: private = \x08\x01 (1: 1)
 @app.route('/api/scoring/current', methods=['GET'])
 @app.route('/api/game-asset-patching-service/manifest', methods=['GET'])
+@app.route('/api/race-results', methods=['POST'])
 def api_proto_empty():
     return '', 200
 
@@ -1334,7 +1343,7 @@ def get_events(limit=None, sport=None):
         event.overrideMapPreferences = False
         event.invisibleToNonParticipants = False
         event.description = "Auto-generated event"
-        event.distanceInMeters = 0
+        event.distanceInMeters = item['distance']
         event.laps = 0
         event.durationInSeconds = 0
         #event.rules_id = 
@@ -1370,7 +1379,7 @@ def get_events(limit=None, sport=None):
             event_cat.toPaceValue = paceValues[cat - 1][1]
             #event_cat.scode = 7; // ex: "PT3600S"
             #event_cat.rules_id = 8; // 320 and others
-            event_cat.distanceInMeters = 0
+            event_cat.distanceInMeters = item['distance']
             event_cat.laps = 0
             event_cat.durationInSeconds = 0
             #event_cat.jerseyHash = 36; // 493134166, tag672
@@ -1442,6 +1451,8 @@ def api_events_subgroups_register_id(ev_sg_id):
 
 @app.route('/api/events/subgroups/entrants/<int:ev_sg_id>', methods=['GET'])
 def api_events_subgroups_entrants_id(ev_sg_id):
+    if request.headers['Accept'] == 'application/x-protobuf-lite':
+        return '', 200
     return '[]', 200
 
 @app.route('/api/events/subgroups/invited_ride_sweepers/<int:ev_sg_id>', methods=['GET'])
@@ -1734,6 +1745,8 @@ def api_profiles_id_privacy(player_id):
 @jwt_to_session_cookie
 @login_required
 def api_profiles_followers(m_player_id, t_player_id=0):
+    if request.headers['Accept'] == 'application/x-protobuf-lite':
+        return '', 200
     rows = db.session.execute(sqlalchemy.text("SELECT player_id, first_name, last_name FROM user"))
     json_data_list = []
     for row in rows:
@@ -3649,7 +3662,7 @@ def launch_zwift():
             return redirect(url_for('login'))
         else:
             return render_template("user_home.html", username=current_user.username, enable_ghosts=os.path.exists(ENABLEGHOSTS_FILE), online=get_online(),
-                is_admin=False, restarting=restarting, restarting_in_minutes=restarting_in_minutes)
+                climbs=CLIMBS, is_admin=False, restarting=restarting, restarting_in_minutes=restarting_in_minutes)
     else:
         if MULTIPLAYER:
             return redirect("http://zwift/?code=zwift_refresh_token%s" % fake_refresh_token_with_session_cookie(request.cookies.get('remember_token')), 302)
