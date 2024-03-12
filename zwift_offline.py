@@ -337,11 +337,6 @@ class ActivityFile(db.Model):
     activity_id = db.Column(db.Integer, nullable=False)
     full = db.Column(db.Integer, nullable=False)
 
-class ActivityImage(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    player_id = db.Column(db.Integer, nullable=False)
-    activity_id = db.Column(db.Integer, nullable=False)
-
 class PowerCurve(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     player_id = db.Column(db.Integer, nullable=False)
@@ -1901,26 +1896,6 @@ def api_profiles_activities(player_id):
         activity = activities.activities.add()
         row_to_protobuf(row, activity, exclude_fields=['fit'])
     return activities.SerializeToString(), 200
-
-@app.route('/api/profiles/<int:player_id>/activities/<int:activity_id>/images', methods=['POST'])
-@jwt_to_session_cookie
-@login_required
-def api_profiles_activities_images(player_id, activity_id):
-    images_dir = '%s/%s/images' % (STORAGE_DIR, player_id)
-    try:
-        if not os.path.isdir(images_dir):
-            os.makedirs(images_dir)
-    except IOError as e:
-        logger.error("failed to create images dir (%s):  %s", images_dir, str(e))
-        return '', 400
-    row = ActivityImage(player_id=player_id, activity_id=activity_id)
-    db.session.add(row)
-    db.session.commit()
-    image = activity_pb2.ActivityImage()
-    image.ParseFromString(request.stream.read())
-    with open('%s/%s.jpg' % (images_dir, row.id), 'wb') as f:
-        f.write(image.jpg)
-    return jsonify({"id": row.id, "id_str": str(row.id)})
 
 def time_since(date):
     seconds = (world_time() - date) // 1000
