@@ -6,7 +6,6 @@ import struct
 import sys
 import threading
 import time
-import csv
 import json
 import math
 import random
@@ -477,12 +476,11 @@ def load_ghosts(player_id, state, ghosts):
         load_ghosts_folder('%s/%s' % (folder, state.route), ghosts)
     ghosts.start_road = zo.road_id(state)
     ghosts.start_rt = state.roadTime
-    with open('%s/start_lines.csv' % SCRIPT_DIR) as fd:
-        sl = [tuple(line) for line in csv.reader(fd)]
-        rt = [t for t in sl if t[0] == str(state.route)]
-        if rt:
-            ghosts.start_road = int(rt[0][1])
-            ghosts.start_rt = int(rt[0][2])
+    with open('%s/data/start_lines.txt' % SCRIPT_DIR) as fd:
+        sl = json.load(fd, object_hook=lambda d: {int(k) if k.lstrip('-').isdigit() else k: v for k, v in d.items()})
+        if state.route in sl:
+            ghosts.start_road = sl[state.route]['road']
+            ghosts.start_rt = sl[state.route]['time']
 
 def regroup_ghosts(player_id):
     p = online[player_id]
@@ -531,21 +529,27 @@ def play_pace_partners():
         pause = pacer_update_freq - (time.perf_counter() - start)
         if pause > 0: time.sleep(pause)
 
+def get_names():
+    bots_file = '%s/bot.txt' % STORAGE_DIR
+    if os.path.isfile(bots_file):
+        with open(bots_file) as f:
+            return json.load(f)['riders']
+    with open('%s/data/names.txt' % SCRIPT_DIR) as f:
+        data = json.load(f)
+    riders = []
+    for _ in range(1000):
+        is_male = bool(random.getrandbits(1))
+        riders.append({'first_name': random.choice(data['male_first_names']) if is_male else random.choice(data['female_first_names']),
+            'last_name': random.choice(data['last_names']), 'is_male': is_male, 'country_code': random.choice(zo.GD['country_codes'])})
+    return riders
+
 def load_bots():
-    body_types = [16, 48, 80, 272, 304, 336, 528, 560, 592]
-    hair_types = [25953412, 175379869, 398510584, 659452569, 838618949, 924073005, 1022111028, 1262230565, 1305767757, 1569595897, 1626212425, 1985754517, 2234835005, 2507058825, 3092564365, 3200039653, 3296520581, 3351295312, 3536770137, 4021222889, 4179410997, 4294226781]
-    facial_hair_types = [248681634, 398510584, 867351826, 1947387842, 2173853954, 3169994930, 4131541011, 4216468066]
     multiplier = 1
     with open(ENABLE_BOTS_FILE) as f:
         try:
             multiplier = int(f.readline().rstrip('\r\n'))
         except ValueError:
             pass
-    bots_file = '%s/bot.txt' % STORAGE_DIR
-    if not os.path.isfile(bots_file):
-        bots_file = '%s/bot.txt' % SCRIPT_DIR
-    with open(bots_file) as f:
-        data = json.load(f)
     i = 1
     loop_riders = []
     for name in os.listdir(STORAGE_DIR):
@@ -571,18 +575,20 @@ def load_bots():
                                 bot.route = global_bots[i + 1000000].route
                             bot.position = positions.pop()
                             if not loop_riders:
-                                loop_riders = data['riders'].copy()
+                                loop_riders = get_names()
                                 random.shuffle(loop_riders)
                             rider = loop_riders.pop()
                             for item in ['first_name', 'last_name', 'is_male', 'country_code', 'ride_jersey', 'bike_frame', 'bike_wheel_front', 'bike_wheel_rear', 'ride_helmet_type', 'glasses_type', 'ride_shoes_type', 'ride_socks_type']:
                                 if item in rider:
                                     setattr(p, item, rider[item])
-                            p.body_type = random.choice(body_types)
-                            p.hair_type = random.choice(hair_types)
+                            p.hair_type = random.choice(zo.GD['hair_types'])
+                            p.hair_colour = random.randrange(5)
                             if p.is_male:
-                                p.facial_hair_type = random.choice(facial_hair_types)
+                                p.body_type = random.choice(zo.GD['body_types_male'])
+                                p.facial_hair_type = random.choice(zo.GD['facial_hair_types'])
+                                p.facial_hair_colour = random.randrange(5)
                             else:
-                                p.body_type += 1
+                                p.body_type = random.choice(zo.GD['body_types_female'])
                             bot.profile = p
                         i += 1
 
@@ -825,6 +831,8 @@ class UDPHandler(socketserver.BaseRequestHandler):
                         socket.sendto(r, client_address)
                         message.msgnum += 1
                         del message.states[:]
+                    if player.groupId:
+                        player.groupId = state.groupId # fix bots in event only routes
                     message.states.append(player)
         else:
             message.num_msgs = 1
