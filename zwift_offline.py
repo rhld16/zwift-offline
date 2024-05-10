@@ -92,6 +92,14 @@ DATABASE_PATH = "%s/zwift-offline.db" % STORAGE_DIR
 DATABASE_CUR_VER = 3
 ZWIFT_VER_CUR = ET.parse('%s/cdn/gameassets/Zwift_Updates_Root/Zwift_ver_cur.xml' % SCRIPT_DIR).getroot().get('sversion')
 
+http_port = 80
+https_port = 443
+PORTS_FILE = "%s/ports.txt" % STORAGE_DIR
+if os.path.isfile(PORTS_FILE):
+    with open(PORTS_FILE) as f:
+            http_port = int(f.readline().rstrip('\r\n'))
+            https_port = int(f.readline().rstrip('\r\n'))
+
 # For auth server
 AUTOLAUNCH_FILE = "%s/auto_launch.txt" % STORAGE_DIR
 SERVER_IP_FILE = "%s/server-ip.txt" % STORAGE_DIR
@@ -643,7 +651,7 @@ def send_mail(username, token):
             message['From'] = sender_email
             message['To'] = username
             message['Subject'] = "Password reset"
-            content = "https://%s/login/?token=%s" % (server_ip, token)
+            content = "https://secure.zwift.com/login/?token=%s" % token
             message.attach(MIMEText(content, 'plain'))
             server.sendmail(sender_email, username, message.as_string())
             server.close()
@@ -3937,7 +3945,7 @@ def run_standalone(passed_online, passed_global_relay, passed_global_pace_partne
     send_message_thread = threading.Thread(target=send_server_back_online_message)
     send_message_thread.start()
     logger.info("Server version %s is running." % ZWIFT_VER_CUR)
-    server = WSGIServer(('0.0.0.0', 443), app, certfile='%s/cert-zwift-com.pem' % SSL_DIR, keyfile='%s/key-zwift-com.pem' % SSL_DIR, log=logger)
+    server = WSGIServer(('0.0.0.0', https_port), app, certfile='%s/cert-zwift-com.pem' % SSL_DIR, keyfile='%s/key-zwift-com.pem' % SSL_DIR, log=logger)
     server.serve_forever()
 
 #    app.run(ssl_context=('%s/cert-zwift-com.pem' % SSL_DIR, '%s/key-zwift-com.pem' % SSL_DIR), port=443, threaded=True, host='0.0.0.0') # debug=True, use_reload=False)
