@@ -96,10 +96,10 @@ zoffline can be installed on the same machine as Zwift or another local machine.
 <details><summary>Windows Instructions</summary>
 
 * Install Zwift
-  * If your Zwift version is 1.0.131597, you're all set.
+  * If your Zwift version is 1.0.132734, you're all set.
   * If Zwift is not installed, install it before installing zoffline.
-  * If your Zwift version is newer than 1.0.131597 and zoffline is running from source: copy ``C:\Program Files (x86)\Zwift\Zwift_ver_cur.xml`` to zoffline's ``cdn/gameassets/Zwift_Updates_Root/`` overwriting the existing file.
-  * If your Zwift version is newer than 1.0.131597 and zoffline is not running from source: wait for zoffline to be updated.
+  * If your Zwift version is newer than 1.0.132734 and zoffline is running from source: copy ``C:\Program Files (x86)\Zwift\Zwift_ver_cur.xml`` to zoffline's ``cdn/gameassets/Zwift_Updates_Root/`` overwriting the existing file.
+  * If your Zwift version is newer than 1.0.132734 and zoffline is not running from source: wait for zoffline to be updated.
 * __NOTE:__ instead of performing the steps below you can instead just run the __configure_client__ script from https://github.com/zoffline/zwift-offline/releases/tag/zoffline_helper
 * On your Windows machine running Zwift, copy the following files in this repo to a known location:
   * [ssl/cert-zwift-com.p12](https://github.com/zoffline/zwift-offline/raw/master/ssl/cert-zwift-com.p12)
@@ -124,9 +124,9 @@ to generate your own certificates and do the same.
 <details><summary>macOS Instructions</summary>
 
 * Install Zwift
-  * If your Zwift version is 1.0.131597, you're all set.
+  * If your Zwift version is 1.0.132734, you're all set.
   * If Zwift is not installed, install it before installing zoffline.
-  * If your Zwift version is newer than 1.0.131597: copy ``~/Library/Application Support/Zwift/ZwiftMac_ver_cur.xml`` to zoffline's ``cdn/gameassets/Zwift_Updates_Root/`` overwriting the existing file.
+  * If your Zwift version is newer than 1.0.132734: copy ``~/Library/Application Support/Zwift/ZwiftMac_ver_cur.xml`` to zoffline's ``cdn/gameassets/Zwift_Updates_Root/`` overwriting the existing file.
 * On your Mac machine running Zwift, copy the file [ssl/cert-zwift-com.pem](https://github.com/zoffline/zwift-offline/raw/master/ssl/cert-zwift-com.pem) in this repo to a known location.
 * Open Keychain Access, select "System" under "Keychains", select "Certificates" under "Category"
     * Click "File - Import Items..." and import cert-zwift-com.pem
@@ -220,7 +220,7 @@ To obtain your current profile:
 * Ensure zoffline is disabled.
 * Run ``scripts/get_profile.py -u <your_zwift_username>``
   * Or, if using the Windows zoffline.exe version without Python installed you can run ``get_profile.exe`` obtained from https://github.com/zoffline/zwift-offline/releases/tag/zoffline_helper in place of ``scripts/get_profile.py``
-* Move the resulting ``profile.bin`` and ``achievements.bin`` (saved in whatever directory you ran get_profile.py in) into the ``storage/1`` directory.
+* Move the resulting ``profile.bin``, ``achievements.bin`` and ``economy_config.txt`` (saved in whatever directory you ran get_profile.py in) into the ``storage/1`` directory.
   * If using zoffline.exe on Windows, create a ``storage/1`` directory within the same folder as zoffline.exe if it does not already exist.
   * If using Docker, the directory ``1`` should be in the path you passed to ``-v``
 

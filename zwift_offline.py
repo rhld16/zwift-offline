@@ -849,13 +849,19 @@ def profile(username):
             access_token, refresh_token = online_sync.login(session, username, password)
             try:
                 if request.form.get("zwift_profile"):
-                    profile = online_sync.query(session, access_token, "api/profiles/me")
+                    profile = online_sync.get(session, access_token, "api/profiles/me")
                     profile_file = '%s/profile.bin' % profile_dir
                     backup_file(profile_file)
                     with open(profile_file, 'wb') as f:
                         f.write(profile)
+                    login_response = login_pb2.LoginResponse()
+                    login_response.ParseFromString(online_sync.post(session, access_token, "api/users/login"))
+                    economy_config_file = '%s/economy_config.txt' % profile_dir
+                    backup_file(economy_config_file)
+                    with open(economy_config_file, 'w') as f:
+                        json.dump(MessageToDict(login_response, preserving_proto_field_name=True)['economy_config'], f, indent=2)
                 if request.form.get("achievements"):
-                    achievements = online_sync.query(session, access_token, "achievement/loadPlayerAchievements")
+                    achievements = online_sync.get(session, access_token, "achievement/loadPlayerAchievements")
                     achievements_file = '%s/achievements.bin' % profile_dir
                     backup_file(achievements_file)
                     with open(achievements_file, 'wb') as f:
@@ -1130,6 +1136,7 @@ def api_recommendations_recommendation():
 @app.route('/api/subscription/plan', methods=['GET'])
 @app.route('/api/quest/quests/all-quests', methods=['GET'])
 @app.route('/api/quest/quests/my-quests', methods=['GET'])
+@app.route('/api/workout/schedule/list', methods=['GET'])
 def api_empty_arrays():
     return jsonify([])
 
@@ -1344,7 +1351,7 @@ def api_users_login():
                 profile.ParseFromString(f.read())
             current_level = profile.achievement_level // 100
             levels = [x for x in economy_config['cycling_levels'] if x['level'] >= current_level]
-            if len(levels) > 1 and profile.total_xp > levels[1]['xp']:
+            if len(levels) > 1 and profile.total_xp > levels[1]['xp']:  # avoid instant promotion
                 offset = profile.total_xp - levels[0]['xp']
                 transition_end = [x for x in levels if x['xp'] <= profile.total_xp][-1]['level']
                 for level in economy_config['cycling_levels']:
@@ -1353,6 +1360,11 @@ def api_users_login():
                 if transition_end > current_level:
                     economy_config['transition_start'] = current_level
                     economy_config['transition_end'] = transition_end
+            elif levels and profile.total_xp < levels[0]['xp']:  # avoid demotion
+                offset = levels[0]['xp'] - profile.total_xp
+                for level in economy_config['cycling_levels']:
+                    if level['level'] <= current_level:
+                        level['xp'] = max(level['xp'] - offset, 0)
         with open(config_file, 'w') as f:
             json.dump(economy_config, f, indent=2)
     with open(config_file) as f:
