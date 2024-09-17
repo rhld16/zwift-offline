@@ -1754,13 +1754,26 @@ def do_api_profiles(profile_id, is_json):
     else: 
         with open(profile_file, 'rb') as fd:
             profile.ParseFromString(fd.read())
-            profile.id = profile_id
-            if not profile.email:
-                profile.email = 'user@email.com'
-            if profile.entitlements:
-                del profile.entitlements[:]
-            if not profile.mix_panel_distinct_id:
-                profile.mix_panel_distinct_id = str(uuid.uuid4())
+        profile.id = profile_id
+        if not profile.email:
+            profile.email = 'user@email.com'
+        for entitlement in list(profile.entitlements):
+            if entitlement.type == profile_pb2.ProfileEntitlement.EntitlementType.RIDE:
+                profile.entitlements.remove(entitlement)
+        if not profile.mix_panel_distinct_id:
+            profile.mix_panel_distinct_id = str(uuid.uuid4())
+    if os.path.isfile('%s/unlock_entitlements.txt' % STORAGE_DIR) or os.path.isfile('%s/unlock_all_equipment.txt' % STORAGE_DIR):
+        with open('%s/data/entitlements.txt' % SCRIPT_DIR) as f:
+            entitlements = json.load(f)
+        if os.path.isfile('%s/unlock_all_equipment.txt' % STORAGE_DIR):
+            for i in range(1, min([e['id'] for e in entitlements])):
+                entitlements.append({'id': i})
+        for entitlement in entitlements:
+            if not any(e.id == entitlement['id'] for e in profile.entitlements):
+                e = profile.entitlements.add()
+                e.type = profile_pb2.ProfileEntitlement.EntitlementType.USE
+                e.id = entitlement['id']
+                e.status = profile_pb2.ProfileEntitlement.ProfileEntitlementStatus.ACTIVE
     if is_json: #todo: publicId, bodyType, totalRunCalories != total_watt_hours, totalRunTimeInMinutes != time_ridden_in_minutes etc
         if profile.dob != "":
             profile.age = age(datetime.datetime.strptime(profile.dob, "%m/%d/%Y"))
@@ -3660,10 +3673,10 @@ def api_player_profile_user_game_storage_attributes():
         return '', 202
     ret = user_storage_pb2.UserStorage()
     n = int(request.args.get('n'))
-    if n in user_storage.game_settings.DESCRIPTOR.fields_by_number:
-        field = user_storage.game_settings.DESCRIPTOR.fields_by_number[n].name
-        if user_storage.game_settings.HasField(field):
-            getattr(ret.game_settings, field).CopyFrom(getattr(user_storage.game_settings, field))
+    if n in user_storage.attributes.DESCRIPTOR.fields_by_number:
+        field = user_storage.attributes.DESCRIPTOR.fields_by_number[n].name
+        if user_storage.attributes.HasField(field):
+            getattr(ret.attributes, field).CopyFrom(getattr(user_storage.attributes, field))
     return ret.SerializeToString(), 200
 
 
