@@ -275,7 +275,7 @@ class TCPHandler(socketserver.BaseRequestHandler):
             return
         hello = udp_node_msgs_pb2.ClientToServer()
         try:
-            hello.ParseFromString(p.payload[2:-8]) #2 bytes: payload length, 1 byte: =0x1 (TcpClient::sendClientToServer) 1 byte: type; payload; 4 bytes: hash
+            hello.ParseFromString(p.payload[2:-4]) #2 bytes: payload length, 1 byte: =0x1 (TcpClient::sendClientToServer) 1 byte: type; payload; 4 bytes: hash
             #type: TcpClient::sayHello(=0x0), TcpClient::sendSubscribeToSegment(=0x1), TcpClient::processSegmentUnsubscription(=0x1)
         except Exception as exc:
             print('TCPHandler ParseFromString exception: %s' % repr(exc))
@@ -329,7 +329,7 @@ class TCPHandler(socketserver.BaseRequestHandler):
                     if len(p.payload) > 1 and p.payload[1] == 1:
                         subscr = udp_node_msgs_pb2.ClientToServer()
                         try:
-                            subscr.ParseFromString(p.payload[2:-8])
+                            subscr.ParseFromString(p.payload[2:-4])
                         except Exception as exc:
                             print('TCPHandler ParseFromString exception: %s' % repr(exc))
                         if subscr.subsSegments:
@@ -507,7 +507,7 @@ def load_bots():
     multiplier = 1
     with open(ENABLE_BOTS_FILE) as f:
         try:
-            multiplier = int(f.readline().rstrip('\r\n'))
+            multiplier = min(int(f.readline().rstrip('\r\n')), 100)
         except ValueError:
             pass
     i = 1
@@ -539,7 +539,7 @@ def load_bots():
                                 loop_riders = get_names()
                                 random.shuffle(loop_riders)
                             rider = loop_riders.pop()
-                            for item in ['first_name', 'last_name', 'is_male', 'country_code', 'ride_jersey', 'bike_frame', 'bike_wheel_front', 'bike_wheel_rear', 'ride_helmet_type', 'glasses_type', 'ride_shoes_type', 'ride_socks_type']:
+                            for item in ['first_name', 'last_name', 'is_male', 'country_code', 'ride_jersey', 'bike_frame', 'bike_frame_colour', 'bike_wheel_front', 'bike_wheel_rear', 'ride_helmet_type', 'glasses_type', 'ride_shoes_type', 'ride_socks_type']:
                                 if item in rider:
                                     setattr(p, item, rider[item])
                             p.hair_type = random.choice(zo.GD['hair_types'])
@@ -629,14 +629,10 @@ class UDPHandler(socketserver.BaseRequestHandler):
         recv = udp_node_msgs_pb2.ClientToServer()
 
         try:
-            recv.ParseFromString(p.payload[:-8])
-        except:
-            try:
-                #If no sensors connected, first byte must be skipped
-                recv.ParseFromString(p.payload[1:-8])
-            except Exception as exc:
-                print('UDPHandler ParseFromString exception: %s' % repr(exc))
-                return
+            recv.ParseFromString(p.payload[1:-4])
+        except Exception as exc:
+            print('UDPHandler ParseFromString exception: %s' % repr(exc))
+            return
 
         client_address = self.client_address
         player_id = recv.player_id
@@ -818,7 +814,7 @@ if os.path.isfile(ENABLE_BOTS_FILE):
     bot.start()
 
 socketserver.ThreadingTCPServer.allow_reuse_address = True
-httpd = socketserver.ThreadingTCPServer(('', 80), CDNHandler)
+httpd = socketserver.ThreadingTCPServer(('', zo.http_port), CDNHandler)
 zoffline_thread = threading.Thread(target=httpd.serve_forever)
 zoffline_thread.daemon = True
 zoffline_thread.start()
