@@ -96,10 +96,10 @@ zoffline can be installed on the same machine as Zwift or another local machine.
 <details><summary>Windows Instructions</summary>
 
 * Install Zwift
-  * If your Zwift version is 1.0.135674, you're all set.
+  * If your Zwift version is 1.0.135866, you're all set.
   * If Zwift is not installed, install it before installing zoffline.
-  * If your Zwift version is newer than 1.0.135674 and zoffline is running from source: copy ``C:\Program Files (x86)\Zwift\Zwift_ver_cur.xml`` to zoffline's ``cdn/gameassets/Zwift_Updates_Root/`` overwriting the existing file.
-  * If your Zwift version is newer than 1.0.135674 and zoffline is not running from source: wait for zoffline to be updated.
+  * If your Zwift version is newer than 1.0.135866 and zoffline is running from source: copy ``C:\Program Files (x86)\Zwift\Zwift_ver_cur.xml`` to zoffline's ``cdn/gameassets/Zwift_Updates_Root/`` overwriting the existing file.
+  * If your Zwift version is newer than 1.0.135866 and zoffline is not running from source: wait for zoffline to be updated.
 * __NOTE:__ instead of performing the steps below you can instead just run the __configure_client__ script from https://github.com/oldnapalm/zoffline-helper/releases/latest
 * On your Windows machine running Zwift, copy the following files in this repo to a known location:
   * [ssl/cert-zwift-com.p12](https://github.com/zoffline/zwift-offline/raw/master/ssl/cert-zwift-com.p12)
@@ -124,9 +124,9 @@ to generate your own certificates and do the same.
 <details><summary>macOS Instructions</summary>
 
 * Install Zwift
-  * If your Zwift version is 1.0.135674, you're all set.
+  * If your Zwift version is 1.0.135866, you're all set.
   * If Zwift is not installed, install it before installing zoffline.
-  * If your Zwift version is newer than 1.0.135674: copy ``~/Library/Application Support/Zwift/ZwiftMac_ver_cur.xml`` to zoffline's ``cdn/gameassets/Zwift_Updates_Root/`` overwriting the existing file.
+  * If your Zwift version is newer than 1.0.135866: copy ``~/Library/Application Support/Zwift/ZwiftMac_ver_cur.xml`` to zoffline's ``cdn/gameassets/Zwift_Updates_Root/`` overwriting the existing file.
 * On your Mac machine running Zwift, copy the file [ssl/cert-zwift-com.pem](https://github.com/zoffline/zwift-offline/raw/master/ssl/cert-zwift-com.pem) in this repo to a known location.
 * Open Keychain Access, select "System" under "Keychains", select "Certificates" under "Category"
     * Click "File - Import Items..." and import cert-zwift-com.pem
@@ -154,7 +154,8 @@ to generate your own certificates and do the same.
   <zoffline ip> secure.zwift.com
   <zoffline ip> cdn.zwift.com
   ```
-  * Run "Virtual Hosts", select the created `hosts.txt` file, fully close (touch the "overview" button and swipe up) the app and run it again
+  * Turn off "Private DNS" in Android settings
+  * Run "Virtual Hosts" and select the created `hosts.txt` file
   * Optionally, instead of using the "Virtual Hosts" app, you can create a ``fake-dns.txt`` file in the ``storage`` directory and set the "DNS 1" of your phone Wi-Fi connection to the IP address of the PC running zoffline
   * Note: If you know what you're doing and have a capable enough router you can adjust your router to alter these DNS records instead of using the "Virtual Hosts" app or changing your phone DNS.
 * Patch after every installation or update:
@@ -304,7 +305,8 @@ To enable support for multiple users perform the steps below:
   <zoffline ip> secure.zwift.com
   ```
   * Important: don't add ``cdn.zwift.com`` to ``hosts.txt``, Companion needs to download images from the official server
-* Run "Virtual Hosts", select the created ``hosts.txt`` file, fully close (touch the "overview" button and swipe up) the app and run it again
+* Turn off "Private DNS" in Android settings
+* Run "Virtual Hosts" and select the created ``hosts.txt`` file
 * Optionally, instead of using the "Virtual Hosts" app, you can create a ``fake-dns.txt`` file in the ``storage`` directory and set the "DNS 1" of your phone Wi-Fi connection to the IP address of the PC running zoffline
 * Note: If you know what you're doing and have a capable enough router you can adjust your router to alter these DNS records instead of using the "Virtual Hosts" app or changing your phone DNS.
 
