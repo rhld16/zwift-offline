@@ -814,7 +814,7 @@ if os.path.isfile(ENABLE_BOTS_FILE):
     bot.start()
 
 socketserver.ThreadingTCPServer.allow_reuse_address = True
-httpd = socketserver.ThreadingTCPServer(('', zo.http_port), CDNHandler)
+httpd = socketserver.ThreadingTCPServer(('', 80), CDNHandler)
 zoffline_thread = threading.Thread(target=httpd.serve_forever)
 zoffline_thread.daemon = True
 zoffline_thread.start()
