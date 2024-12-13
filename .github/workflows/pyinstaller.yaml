@@ -15,11 +15,11 @@ jobs:
       with:
         python-version: '3.12'
 
-    - uses: engineerd/configurator@v0.0.10
+    - uses: jcwillox/install-tool-action@v1
       with:
-        name: "upx.exe"
-        url: "https://github.com/upx/upx/releases/download/v4.2.4/upx-4.2.4-win64.zip"
-        pathInArchive: "upx-4.2.4-win64/upx.exe"
+        repo: "upx/upx"
+        download_url: "/releases/download/v4.2.4/upx-4.2.4-win64.zip"
+        bin_path: "upx-4.2.4-win64"
 
     - run: pip install -r requirements.txt
     - run: pip install pyinstaller garth
