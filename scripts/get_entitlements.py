@@ -14,5 +14,5 @@ while True:
         s = i
     else:
         break
-with open('../data/entitlements.txt', 'w') as f:
+with open('entitlements.txt', 'w') as f:
     json.dump(sorted(data), f, indent=2)
