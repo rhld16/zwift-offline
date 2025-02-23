@@ -11,7 +11,7 @@ Additionally, zoffline's launcher allows selecting a specific map to ride on wit
 Setting up zoffline requires two primary steps. First, zoffline must be installed and run on a system before running Zwift (either on the system running Zwift or on another locally networked system).  Second, Zwift must be configured to use zoffline instead of the official Zwift server.
 
 ### Step 1: Install zoffline
-There are three ways with which to install and run zoffline depending on your platform:
+There are four ways with which to install and run zoffline depending on your platform:
 
 <details><summary>Simplest (Windows only)</summary>
 To install zoffline on Windows:
@@ -86,8 +86,7 @@ zoffline can be installed on the same machine as Zwift or another local machine.
   ```
   * In the ``volumes`` tag replace ``./storage/`` before the ``:`` with the directory path you want to use as your local zoffline data store.
 * If you are not running zoffline on the same PC that Zwift is running: create a ``server-ip.txt`` file in the ``storage`` directory containing the IP address of the PC running zoffline.
-* Start zoffline with:
-  ``docker-compose up -d ``
+* Start zoffline with: ``docker-compose up -d``
 </details>
 
 ### Step 2: Configure Zwift client to use zoffline
