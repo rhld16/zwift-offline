@@ -1,7 +1,7 @@
 FROM ubuntu:24.04 AS builder
 
-RUN apt update
-RUN apt install --no-install-recommends -y python3.12 python3.12-venv
+RUN apt-get update
+RUN apt-get install --no-install-recommends -y python3.12 python3.12-venv
 
 RUN python3.12 -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
@@ -13,9 +13,9 @@ RUN pip3 install --no-cache-dir garth
 FROM ubuntu:24.04
 LABEL maintainer="zoffline <zoffline@tutanota.com>"
 
-RUN apt update
-RUN apt install --no-install-recommends -y python3.12 python3.12-venv
-RUN apt clean
+RUN apt-get update
+RUN apt-get install --no-install-recommends -y python3.12 python3.12-venv
+RUN apt-get clean
 RUN rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /opt/venv /opt/venv
