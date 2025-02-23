@@ -1,28 +1,36 @@
-FROM python:3.12-alpine AS builder
+FROM ubuntu:24.04 AS builder
 
-WORKDIR /usr/src/app
+RUN apt update
+RUN apt install --no-install-recommends -y python3.12 python3.12-venv
 
-RUN apk add --no-cache git gcc g++ musl-dev libffi-dev openssl-dev file make
+RUN python3.12 -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
 
-RUN mkdir -p ./zwift-offline
-COPY ./ ./zwift-offline
+COPY requirements.txt .
+RUN pip3 install --no-cache-dir -r requirements.txt
+RUN pip3 install --no-cache-dir garth
 
-RUN pip install --user --requirement ./zwift-offline/requirements.txt
-RUN pip install --user garth
+FROM ubuntu:24.04
+LABEL maintainer="zoffline <zoffline@tutanota.com>"
 
-FROM python:3.12-alpine
-LABEL maintainer="oldnapalm"
+RUN apt update
+RUN apt install --no-install-recommends -y python3.12 python3.12-venv
+RUN apt clean
+RUN rm -rf /var/lib/apt/lists/*
 
-WORKDIR /usr/src/app
+COPY --from=builder /opt/venv /opt/venv
 
-COPY --from=builder /root/.local/ /root/.local/
-ENV PATH=/root/.local/bin:$PATH
-
-COPY --from=builder /usr/src/app/zwift-offline/ zwift-offline/
-RUN chmod 777 zwift-offline/storage
+RUN mkdir /opt/zwift-offline
+WORKDIR /opt/zwift-offline
+COPY . .
+RUN chmod 777 storage
 
 EXPOSE 443 80 3024/udp 3025 53/udp
 
-VOLUME /usr/src/app/zwift-offline/storage
+VOLUME /opt/zwift-offline/storage
 
-CMD [ "python", "zwift-offline/standalone.py" ]
+ENV PYTHONUNBUFFERED=1
+ENV VIRTUAL_ENV=/opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+CMD [ "python", "standalone.py" ]
