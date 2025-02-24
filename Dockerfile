@@ -1,9 +1,9 @@
-FROM ubuntu:24.04
+FROM ubuntu/python:3.12-24.04
 LABEL maintainer="zoffline <zoffline@tutanota.com>"
 
 ARG DEBIAN_FRONTEND=noninteractive
 
-RUN apt-get update && apt-get install --no-install-recommends -y python3.12 python3.12-venv && \
+RUN apt-get update && apt-get install --no-install-recommends -y python3.12-venv && \
 	apt-get clean && rm -rf /var/lib/apt/lists/*
 
 RUN python3.12 -m venv /opt/venv
