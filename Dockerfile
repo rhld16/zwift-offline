@@ -1,7 +1,7 @@
-FROM ubuntu/python:3.12-24.04
+FROM python:3.12-slim
 LABEL maintainer="zoffline <zoffline@tutanota.com>"
 
-RUN python3.12 -m venv /opt/venv
+RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH" VIRTUAL_ENV=/opt/venv PYTHONUNBUFFERED=1
 
 WORKDIR /opt/zwift-offline
